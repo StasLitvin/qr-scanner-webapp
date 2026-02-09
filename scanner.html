@@ -1,317 +1,277 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>QR Scanner</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>QR Scanner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #ffffff;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #ffffff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
 
-        .header {
-            padding: 16px;
-            text-align: center;
-            width: 100%;
-            background: #16213e;
-        }
+    .header {
+      padding: 16px;
+      text-align: center;
+      width: 100%;
+      background: #16213e;
+    }
 
-        .header h1 {
-            font-size: 18px;
-            font-weight: 600;
-        }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header p { font-size: 13px; color: #a0a0b0; margin-top: 4px; }
 
-        .header p {
-            font-size: 13px;
-            color: #a0a0b0;
-            margin-top: 4px;
-        }
+    .scanner-container {
+      position: relative;
+      width: 100%;
+      max-width: 400px;
+      margin: 12px auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0 12px;
+    }
 
-        .scanner-container {
-            position: relative;
-            width: 100%;
-            max-width: 400px;
-            margin: 12px auto;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 0 12px;
-        }
+    .video-wrapper {
+      position: relative;
+      width: 100%;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 2px solid #0f3460;
+      background: #000;
+    }
 
-        .video-wrapper {
-            position: relative;
-            width: 100%;
-            border-radius: 12px;
-            overflow: hidden;
-            border: 2px solid #0f3460;
-            background: #000;
-        }
+    #video {
+      width: 100%;
+      display: block;
+      /* Важно: не влияет на качество decode, но делает превью стабильным */
+      object-fit: cover;
+    }
 
-        #video {
-            width: 100%;
-            display: block;
-        }
+    .scan-region {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 200px;
+      height: 200px;
+      pointer-events: none;
+    }
 
-        .scan-region {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 200px;
-            height: 200px;
-            pointer-events: none;
-        }
+    .scan-region .corner {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border-color: #e94560;
+      border-style: solid;
+      border-width: 0;
+    }
 
-        .scan-region .corner {
-            position: absolute;
-            width: 30px;
-            height: 30px;
-            border-color: #e94560;
-            border-style: solid;
-            border-width: 0;
-        }
+    .corner.tl { top: 0; left: 0; border-top-width: 4px; border-left-width: 4px; border-radius: 8px 0 0 0; }
+    .corner.tr { top: 0; right: 0; border-top-width: 4px; border-right-width: 4px; border-radius: 0 8px 0 0; }
+    .corner.bl { bottom: 0; left: 0; border-bottom-width: 4px; border-left-width: 4px; border-radius: 0 0 0 8px; }
+    .corner.br { bottom: 0; right: 0; border-bottom-width: 4px; border-right-width: 4px; border-radius: 0 0 8px 0; }
 
-        .corner.tl { top: 0; left: 0; border-top-width: 4px; border-left-width: 4px; border-radius: 8px 0 0 0; }
-        .corner.tr { top: 0; right: 0; border-top-width: 4px; border-right-width: 4px; border-radius: 0 8px 0 0; }
-        .corner.bl { bottom: 0; left: 0; border-bottom-width: 4px; border-left-width: 4px; border-radius: 0 0 0 8px; }
-        .corner.br { bottom: 0; right: 0; border-bottom-width: 4px; border-right-width: 4px; border-radius: 0 0 8px 0; }
+    .scan-line {
+      position: absolute;
+      left: 10%;
+      width: 80%;
+      height: 2px;
+      background: #e94560;
+      animation: scanAnimation 2s linear infinite;
+    }
 
-        .scan-line {
-            position: absolute;
-            left: 10%;
-            width: 80%;
-            height: 2px;
-            background: #e94560;
-            animation: scanAnimation 2s linear infinite;
-        }
+    @keyframes scanAnimation {
+      0% { top: 10%; }
+      50% { top: 90%; }
+      100% { top: 10%; }
+    }
 
-        @keyframes scanAnimation {
-            0% { top: 10%; }
-            50% { top: 90%; }
-            100% { top: 10%; }
-        }
+    #canvas { display: none; }
 
-        #canvas {
-            display: none;
-        }
+    .zoom-control {
+      width: 100%;
+      margin-top: 10px;
+      padding: 10px 14px;
+      background: #16213e;
+      border-radius: 8px;
+      display: none;
+    }
 
-        .zoom-control {
-            width: 100%;
-            margin-top: 10px;
-            padding: 10px 14px;
-            background: #16213e;
-            border-radius: 8px;
-            display: none;
-        }
+    .zoom-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
 
-        .zoom-label {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
-        }
+    .zoom-label span { font-size: 13px; color: #a0a0b0; }
 
-        .zoom-label span {
-            font-size: 13px;
-            color: #a0a0b0;
-        }
+    .zoom-label .zoom-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e94560;
+      min-width: 40px;
+      text-align: right;
+    }
 
-        .zoom-label .zoom-value {
-            font-size: 14px;
-            font-weight: 600;
-            color: #e94560;
-            min-width: 40px;
-            text-align: right;
-        }
+    .zoom-slider-row { display: flex; align-items: center; gap: 10px; }
+    .zoom-icon { font-size: 16px; color: #a0a0b0; flex-shrink: 0; user-select: none; }
 
-        .zoom-slider-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+    .zoom-slider-row input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #0d0d1a;
+      outline: none;
+    }
 
-        .zoom-icon {
-            font-size: 16px;
-            color: #a0a0b0;
-            flex-shrink: 0;
-            user-select: none;
-        }
+    .zoom-slider-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #e94560;
+      cursor: pointer;
+      border: 2px solid #fff;
+      box-shadow: 0 0 6px rgba(233, 69, 96, 0.5);
+    }
 
-        .zoom-slider-row input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            background: #0d0d1a;
-            outline: none;
-        }
+    .zoom-slider-row input[type="range"]::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #e94560;
+      cursor: pointer;
+      border: 2px solid #fff;
+      box-shadow: 0 0 6px rgba(233, 69, 96, 0.5);
+    }
 
-        .zoom-slider-row input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            background: #e94560;
-            cursor: pointer;
-            border: 2px solid #fff;
-            box-shadow: 0 0 6px rgba(233, 69, 96, 0.5);
-        }
+    .zoom-presets { display: flex; gap: 6px; margin-top: 8px; }
 
-        .zoom-slider-row input[type="range"]::-moz-range-thumb {
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            background: #e94560;
-            cursor: pointer;
-            border: 2px solid #fff;
-            box-shadow: 0 0 6px rgba(233, 69, 96, 0.5);
-        }
+    .zoom-preset-btn {
+      flex: 1;
+      padding: 6px 0;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      background: transparent;
+      color: #a0a0b0;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
 
-        .zoom-presets {
-            display: flex;
-            gap: 6px;
-            margin-top: 8px;
-        }
+    .zoom-preset-btn.active { background: #e94560; border-color: #e94560; color: #fff; }
+    .zoom-preset-btn:active { transform: scale(0.95); }
 
-        .zoom-preset-btn {
-            flex: 1;
-            padding: 6px 0;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            background: transparent;
-            color: #a0a0b0;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
+    .status {
+      margin-top: 12px;
+      padding: 12px 20px;
+      background: #16213e;
+      border-radius: 8px;
+      font-size: 14px;
+      text-align: center;
+      width: 100%;
+    }
 
-        .zoom-preset-btn.active {
-            background: #e94560;
-            border-color: #e94560;
-            color: #fff;
-        }
+    .status.success { background: #1b5e20; }
+    .status.error { background: #b71c1c; }
+    .status.warning { background: #e65100; }
 
-        .zoom-preset-btn:active {
-            transform: scale(0.95);
-        }
+    .btn-row { display: flex; gap: 8px; margin-top: 12px; width: 100%; }
 
-        .status {
-            margin-top: 12px;
-            padding: 12px 20px;
-            background: #16213e;
-            border-radius: 8px;
-            font-size: 14px;
-            text-align: center;
-            width: 100%;
-        }
+    .btn {
+      flex: 1;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      color: #fff;
+      transition: background 0.2s;
+    }
 
-        .status.success { background: #1b5e20; }
-        .status.error { background: #b71c1c; }
-        .status.warning { background: #e65100; }
+    .btn-switch { background: #0f3460; }
+    .btn-switch:active { background: #1a5276; }
+    .btn-flash { background: #533483; }
+    .btn-flash:active { background: #6c44a2; }
+    .btn-flash.on { background: #f0a500; color: #1a1a2e; }
+    .btn-close { background: #b71c1c; }
+    .btn-close:active { background: #d32f2f; }
 
-        .btn-row {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-            width: 100%;
-        }
-
-        .btn {
-            flex: 1;
-            padding: 12px 16px;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            cursor: pointer;
-            color: #fff;
-            transition: background 0.2s;
-        }
-
-        .btn-switch { background: #0f3460; }
-        .btn-switch:active { background: #1a5276; }
-        .btn-flash { background: #533483; }
-        .btn-flash:active { background: #6c44a2; }
-        .btn-flash.on { background: #f0a500; color: #1a1a2e; }
-        .btn-close { background: #b71c1c; }
-        .btn-close:active { background: #d32f2f; }
-
-        .debug {
-            margin-top: 8px;
-            padding: 8px 12px;
-            background: #0d0d1a;
-            border-radius: 6px;
-            font-size: 11px;
-            color: #666;
-            width: 100%;
-            max-height: 120px;
-            overflow-y: auto;
-            word-break: break-all;
-        }
-    </style>
+    .debug {
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: #0d0d1a;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #666;
+      width: 100%;
+      max-height: 120px;
+      overflow-y: auto;
+      word-break: break-all;
+    }
+  </style>
 </head>
 <body>
 
-<div class="header">
+  <div class="header">
     <h1>Сканирование QR-кода</h1>
     <p>Наведите камеру на QR-код участника</p>
-</div>
+  </div>
 
-<div class="scanner-container">
+  <div class="scanner-container">
     <div class="video-wrapper">
-        <video id="video" autoplay playsinline muted></video>
-        <div class="scan-region">
-            <div class="corner tl"></div>
-            <div class="corner tr"></div>
-            <div class="corner bl"></div>
-            <div class="corner br"></div>
-            <div class="scan-line"></div>
-        </div>
+      <video id="video" autoplay playsinline muted></video>
+      <div class="scan-region">
+        <div class="corner tl"></div>
+        <div class="corner tr"></div>
+        <div class="corner bl"></div>
+        <div class="corner br"></div>
+        <div class="scan-line"></div>
+      </div>
     </div>
 
     <canvas id="canvas"></canvas>
 
     <div class="zoom-control" id="zoomControl">
-        <div class="zoom-label">
-            <span>Масштаб камеры</span>
-            <span class="zoom-value" id="zoomValue">1.0x</span>
-        </div>
-        <div class="zoom-slider-row">
-            <span class="zoom-icon">−</span>
-            <input type="range" id="zoomSlider" min="1" max="10" step="0.1" value="1">
-            <span class="zoom-icon">+</span>
-        </div>
-        <div class="zoom-presets" id="zoomPresets"></div>
+      <div class="zoom-label">
+        <span>Масштаб камеры</span>
+        <span class="zoom-value" id="zoomValue">1.0x</span>
+      </div>
+      <div class="zoom-slider-row">
+        <span class="zoom-icon">−</span>
+        <input type="range" id="zoomSlider" min="1" max="10" step="0.1" value="1">
+        <span class="zoom-icon">+</span>
+      </div>
+      <div class="zoom-presets" id="zoomPresets"></div>
     </div>
 
     <div class="status" id="status">Запуск камеры...</div>
 
     <div class="btn-row">
-        <button class="btn btn-switch" id="switchBtn">📷 Камера</button>
-        <button class="btn btn-flash" id="flashBtn">🔦 Вспышка</button>
-        <button class="btn btn-close" id="closeBtn">✕ Закрыть</button>
+      <button class="btn btn-switch" id="switchBtn">📷 Камера</button>
+      <button class="btn btn-flash" id="flashBtn">🔦 Вспышка</button>
+      <button class="btn btn-close" id="closeBtn">✕ Закрыть</button>
     </div>
 
     <div class="debug" id="debug">Лог: инициализация...</div>
-</div>
+  </div>
 
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <!-- Если CDN недоступен, замени на локальную копию jsQR -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
-<script>
+  <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -342,422 +302,471 @@
     let tg = null;
     let isTelegram = false;
     try {
-        if (window.Telegram && window.Telegram.WebApp) {
-            tg = window.Telegram.WebApp;
-            tg.expand();
-            tg.ready();
-            isTelegram = true;
-            log('Telegram WebApp обнаружен');
-        } else {
-            log('Автономный режим');
-        }
+      if (window.Telegram && window.Telegram.WebApp) {
+        tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+        isTelegram = true;
+        log('Telegram WebApp обнаружен');
+      } else {
+        log('Автономный режим');
+      }
     } catch (e) {
-        log('TG ошибка: ' + e.message);
+      log('TG ошибка: ' + e.message);
     }
 
     log('event_id = ' + eventId);
 
     function log(msg) {
-        const time = new Date().toLocaleTimeString();
-        const line = time + ' | ' + msg;
-        debugLines.push(line);
-        if (debugLines.length > 15) debugLines.shift();
-        debugEl.textContent = debugLines.join('\n');
-        debugEl.scrollTop = debugEl.scrollHeight;
-        console.log('[QR]', msg);
+      const time = new Date().toLocaleTimeString();
+      const line = time + ' | ' + msg;
+      debugLines.push(line);
+      if (debugLines.length > 15) debugLines.shift();
+      debugEl.textContent = debugLines.join('\n');
+      debugEl.scrollTop = debugEl.scrollHeight;
+      console.log('[QR]', msg);
     }
 
     function setStatus(text, cls) {
-        statusEl.textContent = text;
-        statusEl.className = 'status' + (cls ? ' ' + cls : '');
+      statusEl.textContent = text;
+      statusEl.className = 'status' + (cls ? ' ' + cls : '');
+    }
+
+    // Утилита: подождать loadedmetadata, чтобы videoWidth/Height были валидны
+    function waitLoadedMetadata(v) {
+      return new Promise((resolve, reject) => {
+        const onOk = () => { cleanup(); resolve(); };
+        const onErr = () => { cleanup(); reject(new Error('video metadata error')); };
+        const cleanup = () => {
+          v.removeEventListener('loadedmetadata', onOk);
+          v.removeEventListener('error', onErr);
+        };
+        v.addEventListener('loadedmetadata', onOk, { once: true });
+        v.addEventListener('error', onErr, { once: true });
+      });
     }
 
     // ============================================================
-    // КАМЕРА — правильные constraints
+    // КАМЕРА — constraints + стабильность + без принудительного 0.5x
     // ============================================================
     async function startCamera() {
-        stopCamera();
+      stopCamera();
 
-        const facingMode = useFrontCamera ? 'user' : 'environment';
-        log('Запуск: ' + facingMode);
-        setStatus('Запуск камеры...');
+      const facingMode = useFrontCamera ? 'user' : 'environment';
+      log('Запуск: ' + facingMode);
+      setStatus('Запуск камеры...');
 
-        // ============================================================
-        // Стратегия: запрашиваем ВЫСОКОЕ разрешение через ideal,
-        // НЕ через exact. Камера сама выберет ближайшее нативное.
-        // Ключ: НЕ указываем width+height exact — только ideal.
-        // ideal: 1920x1080 → камера даст Full HD если может,
-        // или ближайшее меньшее БЕЗ цифрового кропа.
-        // ============================================================
-        const constraintsList = [
-            // Вариант 1: задняя камера, высокое разрешение
-            {
-                video: {
-                    facingMode: { exact: facingMode },
-                    width: { ideal: 1920, min: 640 },
-                    height: { ideal: 1080, min: 480 }
-                },
-                audio: false
-            },
-            // Вариант 2: без exact facingMode
-            {
-                video: {
-                    facingMode: facingMode,
-                    width: { ideal: 1920, min: 640 },
-                    height: { ideal: 1080, min: 480 }
-                },
-                audio: false
-            },
-            // Вариант 3: только facingMode ideal
-            {
-                video: {
-                    facingMode: { ideal: facingMode },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
-                audio: false
-            },
-            // Вариант 4: любая камера с разрешением
-            {
-                video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
-                audio: false
-            },
-            // Вариант 5: совсем fallback
-            {
-                video: true,
-                audio: false
-            }
-        ];
+      // Важно: не использовать "zoom min" на старте — это часто 0.5x (ультраширик) => мыло
+      const constraintsList = [
+        {
+          video: {
+            facingMode: { exact: facingMode },
+            width: { ideal: 1920, min: 640 },
+            height: { ideal: 1080, min: 480 },
+            frameRate: { ideal: 30, min: 15 },
+            aspectRatio: { ideal: 16 / 9 }
+          },
+          audio: false
+        },
+        {
+          video: {
+            facingMode: facingMode,
+            width: { ideal: 1920, min: 640 },
+            height: { ideal: 1080, min: 480 },
+            frameRate: { ideal: 30, min: 15 },
+            aspectRatio: { ideal: 16 / 9 }
+          },
+          audio: false
+        },
+        {
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30, min: 15 }
+          },
+          audio: false
+        },
+        {
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30, min: 15 }
+          },
+          audio: false
+        },
+        { video: true, audio: false }
+      ];
 
-        let stream = null;
-        for (let i = 0; i < constraintsList.length; i++) {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia(constraintsList[i]);
-                log('Камера OK (вариант ' + (i + 1) + ')');
-                break;
-            } catch (err) {
-                log('Вариант ' + (i + 1) + ' fail: ' + err.name);
-            }
+      let stream = null;
+      for (let i = 0; i < constraintsList.length; i++) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraintsList[i]);
+          log('Камера OK (вариант ' + (i + 1) + ')');
+          break;
+        } catch (err) {
+          log('Вариант ' + (i + 1) + ' fail: ' + err.name + (err.message ? (' / ' + err.message) : ''));
         }
+      }
 
-        if (!stream) {
-            setStatus('Нет доступа к камере', 'error');
-            log('Все варианты провалились');
-            return;
-        }
+      if (!stream) {
+        setStatus('Нет доступа к камере', 'error');
+        log('Все варианты провалились');
+        return;
+      }
 
-        currentStream = stream;
-        currentTrack = stream.getVideoTracks()[0];
-        video.srcObject = stream;
+      currentStream = stream;
+      currentTrack = stream.getVideoTracks()[0];
 
-        // Логируем что получили
-        const settings = currentTrack.getSettings();
-        log('Track settings: ' + settings.width + 'x' + settings.height +
-            ' facing=' + (settings.facingMode || '?'));
+      // Логи: что реально получили
+      try {
+        const s = currentTrack.getSettings();
+        log('Track settings: ' + (s.width || '?') + 'x' + (s.height || '?') + ' facing=' + (s.facingMode || '?') + ' zoom=' + (s.zoom ?? '?'));
+      } catch (e) {}
 
-        // ============================================================
-        // ПОСЛЕ получения трека — настраиваем фокус и зум
-        // через applyConstraints (не через getUserMedia!)
-        // ============================================================
-        await tuneTrack();
-        await setupZoom();
+      video.srcObject = stream;
 
-        flashOn = false;
-        flashBtn.classList.remove('on');
+      // ВАЖНО: дождаться метаданных и только потом play/scan
+      try {
+        await waitLoadedMetadata(video);
+      } catch (e) {
+        setStatus('Ошибка видео', 'error');
+        log('loadedmetadata ошибка: ' + e.message);
+        return;
+      }
 
-        video.onloadedmetadata = () => {
-            video.play().then(() => {
-                log('Видео: ' + video.videoWidth + 'x' + video.videoHeight);
-                setStatus('Камера активна. Ищу QR-код...');
-                scanActive = true;
-                requestScan();
-            }).catch(err => {
-                log('play() ошибка: ' + err.message);
-                setStatus('Ошибка воспроизведения', 'error');
-            });
-        };
+      // Настройка трека: автофокус + стартовый zoom=1.0 (если доступно)
+      await tuneTrack();
+      await setupZoom(); // UI по фактическому zoom
 
-        video.onerror = () => {
-            log('Ошибка видео');
-            setStatus('Ошибка видео', 'error');
-        };
+      flashOn = false;
+      flashBtn.classList.remove('on');
+
+      try {
+        await video.play();
+      } catch (err) {
+        log('play() ошибка: ' + err.message);
+        setStatus('Ошибка воспроизведения', 'error');
+        return;
+      }
+
+      log('Видео: ' + video.videoWidth + 'x' + video.videoHeight);
+      setStatus('Камера активна. Ищу QR-код...');
+      scanActive = true;
+      requestScan();
     }
 
     // ============================================================
-    // Тонкая настройка трека: автофокус + сброс зума
+    // Тонкая настройка трека: автофокус + стартовый зум 1.0x
     // ============================================================
     async function tuneTrack() {
-        if (!currentTrack) return;
+      if (!currentTrack) return;
 
-        try {
-            const caps = currentTrack.getCapabilities();
-            const advanced = [];
+      try {
+        const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
+        const settings = currentTrack.getSettings ? currentTrack.getSettings() : {};
+        const advanced = [];
 
-            // Логируем все capabilities для отладки
-            log('Caps keys: ' + Object.keys(caps).join(', '));
+        log('Caps keys: ' + Object.keys(caps).join(', '));
 
-            // --- Автофокус ---
-            if (caps.focusMode) {
-                log('focusModes: ' + caps.focusMode.join(', '));
-                if (caps.focusMode.includes('continuous')) {
-                    advanced.push({ focusMode: 'continuous' });
-                    log('→ focusMode: continuous');
-                } else if (caps.focusMode.includes('auto')) {
-                    advanced.push({ focusMode: 'auto' });
-                    log('→ focusMode: auto');
-                }
-            } else {
-                log('focusMode не поддерживается');
-            }
-
-            // --- Сброс зума на минимум ---
-            if (caps.zoom) {
-                advanced.push({ zoom: caps.zoom.min });
-                log('→ zoom сброшен на ' + caps.zoom.min);
-            }
-
-            // --- Применяем ---
-            if (advanced.length > 0) {
-                await currentTrack.applyConstraints({ advanced: advanced });
-                log('applyConstraints OK');
-            }
-        } catch (e) {
-            log('tuneTrack ошибка: ' + e.message);
+        // --- Автофокус ---
+        if (caps.focusMode && Array.isArray(caps.focusMode)) {
+          log('focusModes: ' + caps.focusMode.join(', '));
+          if (caps.focusMode.includes('continuous')) {
+            advanced.push({ focusMode: 'continuous' });
+            log('→ focusMode: continuous');
+          } else if (caps.focusMode.includes('auto')) {
+            advanced.push({ focusMode: 'auto' });
+            log('→ focusMode: auto');
+          }
+        } else {
+          log('focusMode не поддерживается');
         }
+
+        // --- Стартовый zoom ---
+        // Цель: НЕ уходить на zoom.min (часто 0.5x) на задней камере.
+        if (caps.zoom) {
+          const minZ = caps.zoom.min;
+          const maxZ = caps.zoom.max;
+
+          // Если 1.0 попадает в диапазон — ставим 1.0, иначе оставляем текущий (или min)
+          const targetZoom =
+            (minZ <= 1 && maxZ >= 1) ? 1 :
+            (settings.zoom != null ? settings.zoom : minZ);
+
+          advanced.push({ zoom: targetZoom });
+          log('→ zoom старт: ' + targetZoom);
+        }
+
+        if (advanced.length > 0) {
+          await currentTrack.applyConstraints({ advanced });
+          log('applyConstraints OK');
+        }
+      } catch (e) {
+        log('tuneTrack ошибка: ' + e.message);
+      }
     }
 
     function stopCamera() {
-        scanActive = false;
-        if (animFrameId) {
-            cancelAnimationFrame(animFrameId);
-            animFrameId = null;
-        }
-        if (currentStream) {
-            currentStream.getTracks().forEach(t => t.stop());
-            currentStream = null;
-            currentTrack = null;
-        }
-        video.srcObject = null;
-        zoomControl.style.display = 'none';
-        zoomCapabilities = null;
+      scanActive = false;
+
+      if (animFrameId) {
+        cancelAnimationFrame(animFrameId);
+        animFrameId = null;
+      }
+
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+        currentTrack = null;
+      }
+
+      video.srcObject = null;
+      zoomControl.style.display = 'none';
+      zoomCapabilities = null;
     }
 
-    // ====== ZOOM UI ======
+    // ============================================================
+    // ZOOM UI — синхронизация с реальным zoom
+    // ============================================================
     async function setupZoom() {
-        if (!currentTrack) return;
-        try {
-            const caps = currentTrack.getCapabilities();
-            if (caps.zoom) {
-                zoomCapabilities = caps.zoom;
-                const minZ = zoomCapabilities.min;
-                const maxZ = zoomCapabilities.max;
-                const stepZ = zoomCapabilities.step || 0.1;
+      if (!currentTrack || !currentTrack.getCapabilities) return;
 
-                log('Zoom UI: ' + minZ + ' - ' + maxZ);
+      try {
+        const caps = currentTrack.getCapabilities();
+        const settings = currentTrack.getSettings ? currentTrack.getSettings() : {};
+        if (caps.zoom) {
+          zoomCapabilities = caps.zoom;
+          const minZ = zoomCapabilities.min;
+          const maxZ = zoomCapabilities.max;
+          const stepZ = zoomCapabilities.step || 0.1;
 
-                zoomSlider.min = minZ;
-                zoomSlider.max = maxZ;
-                zoomSlider.step = stepZ;
-                zoomSlider.value = minZ;
-                zoomValueEl.textContent = minZ.toFixed(1) + 'x';
+          log('Zoom UI: ' + minZ + ' - ' + maxZ);
 
-                createZoomPresets(minZ, maxZ);
-                zoomControl.style.display = 'block';
-            } else {
-                zoomControl.style.display = 'none';
-            }
-        } catch (e) {
-            zoomControl.style.display = 'none';
+          zoomSlider.min = minZ;
+          zoomSlider.max = maxZ;
+          zoomSlider.step = stepZ;
+
+          // Стартовое значение: если уже применили 1.0 — берём его из settings.zoom
+          let startZ = settings.zoom;
+          if (startZ == null) startZ = (minZ <= 1 && maxZ >= 1) ? 1 : minZ;
+
+          // нормализуем в диапазон
+          startZ = Math.max(minZ, Math.min(maxZ, startZ));
+
+          zoomSlider.value = startZ;
+          zoomValueEl.textContent = Number(startZ).toFixed(1) + 'x';
+
+          createZoomPresets(minZ, maxZ);
+          updatePresetActive(startZ);
+
+          zoomControl.style.display = 'block';
+        } else {
+          zoomControl.style.display = 'none';
         }
+      } catch (e) {
+        zoomControl.style.display = 'none';
+      }
     }
 
     async function applyZoom(value) {
-        if (!currentTrack) return;
-        try {
-            await currentTrack.applyConstraints({ advanced: [{ zoom: value }] });
-        } catch (e) {
-            log('zoom ошибка: ' + e.message);
-        }
+      if (!currentTrack) return;
+      try {
+        await currentTrack.applyConstraints({ advanced: [{ zoom: value }] });
+      } catch (e) {
+        log('zoom ошибка: ' + e.message);
+      }
     }
 
     function createZoomPresets(minZ, maxZ) {
-        zoomPresetsEl.innerHTML = '';
-        const presets = [];
-        presets.push({ label: minZ.toFixed(1) + 'x', value: minZ });
+      zoomPresetsEl.innerHTML = '';
+      const presets = [];
 
-        const range = maxZ - minZ;
-        if (range > 0.5) presets.push({ label: (minZ + range * 0.25).toFixed(1) + 'x', value: minZ + range * 0.25 });
-        if (range > 1) presets.push({ label: (minZ + range * 0.5).toFixed(1) + 'x', value: minZ + range * 0.5 });
-        if (range > 2) presets.push({ label: (minZ + range * 0.75).toFixed(1) + 'x', value: minZ + range * 0.75 });
-        presets.push({ label: maxZ.toFixed(1) + 'x', value: maxZ });
+      // Всегда добавляем min
+      presets.push({ label: minZ.toFixed(1) + 'x', value: minZ });
 
-        const unique = [];
-        const seen = new Set();
-        for (const p of presets) {
-            const key = p.value.toFixed(1);
-            if (!seen.has(key)) { seen.add(key); unique.push(p); }
-        }
+      // Добавляем 1.0x, если доступен (это самый полезный пресет против "мыла" 0.5x)
+      if (minZ <= 1 && maxZ >= 1) presets.push({ label: '1.0x', value: 1 });
 
-        unique.forEach((preset, idx) => {
-            const btn = document.createElement('button');
-            btn.className = 'zoom-preset-btn' + (idx === 0 ? ' active' : '');
-            btn.textContent = preset.label;
-            btn.addEventListener('click', async () => {
-                zoomSlider.value = preset.value;
-                zoomValueEl.textContent = preset.value.toFixed(1) + 'x';
-                await applyZoom(preset.value);
-                updatePresetActive(preset.value);
-            });
-            zoomPresetsEl.appendChild(btn);
+      const range = maxZ - minZ;
+      if (range > 0.5) presets.push({ label: (minZ + range * 0.25).toFixed(1) + 'x', value: minZ + range * 0.25 });
+      if (range > 1) presets.push({ label: (minZ + range * 0.5).toFixed(1) + 'x', value: minZ + range * 0.5 });
+      if (range > 2) presets.push({ label: (minZ + range * 0.75).toFixed(1) + 'x', value: minZ + range * 0.75 });
+
+      // max
+      presets.push({ label: maxZ.toFixed(1) + 'x', value: maxZ });
+
+      // uniq by rounded value
+      const unique = [];
+      const seen = new Set();
+      for (const p of presets) {
+        const key = p.value.toFixed(2);
+        if (!seen.has(key)) { seen.add(key); unique.push(p); }
+      }
+
+      unique.forEach((preset) => {
+        const btn = document.createElement('button');
+        btn.className = 'zoom-preset-btn';
+        btn.textContent = preset.label;
+        btn.addEventListener('click', async () => {
+          zoomSlider.value = preset.value;
+          zoomValueEl.textContent = preset.value.toFixed(1) + 'x';
+          await applyZoom(preset.value);
+          updatePresetActive(preset.value);
         });
+        zoomPresetsEl.appendChild(btn);
+      });
     }
 
     function updatePresetActive(val) {
-        zoomPresetsEl.querySelectorAll('.zoom-preset-btn').forEach(btn => {
-            const v = parseFloat(btn.textContent);
-            btn.classList.toggle('active', Math.abs(v - val) < 0.05);
-        });
+      zoomPresetsEl.querySelectorAll('.zoom-preset-btn').forEach(btn => {
+        const v = parseFloat(btn.textContent); // "1.0x" -> 1
+        btn.classList.toggle('active', Math.abs(v - val) < 0.06);
+      });
     }
 
     zoomSlider.addEventListener('input', async () => {
-        const val = parseFloat(zoomSlider.value);
-        zoomValueEl.textContent = val.toFixed(1) + 'x';
-        await applyZoom(val);
-        updatePresetActive(val);
+      const val = parseFloat(zoomSlider.value);
+      zoomValueEl.textContent = val.toFixed(1) + 'x';
+      await applyZoom(val);
+      updatePresetActive(val);
     });
 
-    // ====== ВСПЫШКА ======
+    // ============================================================
+    // ВСПЫШКА
+    // ============================================================
     async function toggleFlash() {
-        if (!currentTrack) return;
-        try {
-            const caps = currentTrack.getCapabilities();
-            if (!caps.torch) {
-                setStatus('Вспышка недоступна', 'warning');
-                setTimeout(() => setStatus('Камера активна. Ищу QR-код...'), 2000);
-                return;
-            }
-            flashOn = !flashOn;
-            await currentTrack.applyConstraints({ advanced: [{ torch: flashOn }] });
-            flashBtn.classList.toggle('on', flashOn);
-            log('Вспышка: ' + (flashOn ? 'ВКЛ' : 'ВЫКЛ'));
-        } catch (e) {
-            log('Вспышка ошибка: ' + e.message);
+      if (!currentTrack) return;
+      try {
+        const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
+        if (!caps.torch) {
+          setStatus('Вспышка недоступна', 'warning');
+          setTimeout(() => setStatus('Камера активна. Ищу QR-код...'), 2000);
+          return;
         }
+        flashOn = !flashOn;
+        await currentTrack.applyConstraints({ advanced: [{ torch: flashOn }] });
+        flashBtn.classList.toggle('on', flashOn);
+        log('Вспышка: ' + (flashOn ? 'ВКЛ' : 'ВЫКЛ'));
+      } catch (e) {
+        log('Вспышка ошибка: ' + e.message);
+      }
     }
 
-    // ====== СКАНИРОВАНИЕ ======
+    // ============================================================
+    // СКАНИРОВАНИЕ
+    // ============================================================
     function requestScan() {
-        if (!scanActive) return;
-        animFrameId = requestAnimationFrame(scanFrame);
+      if (!scanActive) return;
+      animFrameId = requestAnimationFrame(scanFrame);
     }
 
     function scanFrame() {
-        if (!scanActive) return;
-        if (video.readyState !== video.HAVE_ENOUGH_DATA) { requestScan(); return; }
+      if (!scanActive) return;
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) { requestScan(); return; }
 
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        if (w === 0 || h === 0) { requestScan(); return; }
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (!w || !h) { requestScan(); return; }
 
-        // Сканируем центральные 60% кадра
-        const cropW = Math.floor(w * SCAN_CENTER_FRACTION);
-        const cropH = Math.floor(h * SCAN_CENTER_FRACTION);
-        const cropX = Math.floor((w - cropW) / 2);
-        const cropY = Math.floor((h - cropH) / 2);
+      const cropW = Math.floor(w * SCAN_CENTER_FRACTION);
+      const cropH = Math.floor(h * SCAN_CENTER_FRACTION);
+      const cropX = Math.floor((w - cropW) / 2);
+      const cropY = Math.floor((h - cropH) / 2);
 
-        canvas.width = cropW;
-        canvas.height = cropH;
-        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      canvas.width = cropW;
+      canvas.height = cropH;
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-        let imageData;
-        try {
-            imageData = ctx.getImageData(0, 0, cropW, cropH);
-        } catch (e) {
-            requestScan();
-            return;
-        }
-
-        const code = jsQR(imageData.data, cropW, cropH, {
-            inversionAttempts: 'attemptBoth'
-        });
-
-        if (code && code.data) {
-            onQRDetected(code.data);
-            return;
-        }
-
+      let imageData;
+      try {
+        imageData = ctx.getImageData(0, 0, cropW, cropH);
+      } catch (e) {
         requestScan();
+        return;
+      }
+
+      const code = jsQR(imageData.data, cropW, cropH, { inversionAttempts: 'attemptBoth' });
+      if (code && code.data) {
+        onQRDetected(code.data);
+        return;
+      }
+
+      requestScan();
     }
 
-    // ====== QR НАЙДЕН ======
+    // ============================================================
+    // QR НАЙДЕН
+    // ============================================================
     function onQRDetected(qrData) {
-        scanActive = false;
-        log('QR: ' + qrData);
-        setStatus('✅ QR-код считан!', 'success');
+      scanActive = false;
+      log('QR: ' + qrData);
+      setStatus('✅ QR-код считан!', 'success');
 
-        try { if (navigator.vibrate) navigator.vibrate(200); } catch (e) {}
+      try { if (navigator.vibrate) navigator.vibrate(200); } catch (e) {}
 
-        const payload = JSON.stringify({
-            event_id: eventId,
-            qr_Data: qrData
-        });
+      const payload = JSON.stringify({
+        event_id: eventId,
+        qr_Data: qrData
+      });
 
-        log('Payload: ' + payload);
+      log('Payload: ' + payload);
 
-        if (isTelegram) {
-            try {
-                tg.sendData(payload);
-                log('sendData() OK');
-                setTimeout(() => { try { tg.close(); } catch(e) {} }, 2000);
-            } catch (e) {
-                log('sendData ошибка: ' + e.message);
-                setStatus('Ошибка отправки', 'error');
-                resumeScanAfterDelay();
-            }
-        } else {
-            setStatus('QR: ' + qrData, 'success');
-            resumeScanAfterDelay();
+      if (isTelegram) {
+        try {
+          tg.sendData(payload);
+          log('sendData() OK');
+          setTimeout(() => { try { tg.close(); } catch(e) {} }, 2000);
+        } catch (e) {
+          log('sendData ошибка: ' + e.message);
+          setStatus('Ошибка отправки', 'error');
+          resumeScanAfterDelay();
         }
+      } else {
+        setStatus('QR: ' + qrData, 'success');
+        resumeScanAfterDelay();
+      }
     }
 
     function resumeScanAfterDelay() {
-        setTimeout(() => {
-            scanActive = true;
-            requestScan();
-            setStatus('Камера активна. Ищу QR-код...');
-        }, 3000);
+      setTimeout(() => {
+        scanActive = true;
+        requestScan();
+        setStatus('Камера активна. Ищу QR-код...');
+      }, 3000);
     }
 
-    // ====== КНОПКИ ======
+    // ============================================================
+    // КНОПКИ
+    // ============================================================
     switchBtn.addEventListener('click', () => {
-        useFrontCamera = !useFrontCamera;
-        log('Переключение: ' + (useFrontCamera ? 'фронт' : 'задняя'));
-        startCamera();
+      useFrontCamera = !useFrontCamera;
+      log('Переключение: ' + (useFrontCamera ? 'фронт' : 'задняя'));
+      startCamera();
     });
 
     flashBtn.addEventListener('click', () => toggleFlash());
 
     closeBtn.addEventListener('click', () => {
-        stopCamera();
-        if (isTelegram) { try { tg.close(); } catch(e) {} }
-        setStatus('Сканер закрыт');
+      stopCamera();
+      if (isTelegram) { try { tg.close(); } catch(e) {} }
+      setStatus('Сканер закрыт');
     });
 
-    // ====== ЗАПУСК ======
+    // ============================================================
+    // ЗАПУСК
+    // ============================================================
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        log('getUserMedia OK');
-        startCamera();
+      log('getUserMedia OK');
+      startCamera();
     } else {
-        setStatus('Камера не поддерживается', 'error');
-        log('getUserMedia НЕ поддерживается');
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            setStatus('Нужен HTTPS! Протокол: ' + location.protocol, 'error');
-        }
+      setStatus('Камера не поддерживается', 'error');
+      log('getUserMedia НЕ поддерживается');
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+        setStatus('Нужен HTTPS! Протокол: ' + location.protocol, 'error');
+      }
     }
-</script>
+  </script>
 
 </body>
 </html>
