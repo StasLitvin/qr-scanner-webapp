@@ -372,6 +372,10 @@
     let animFrameId = null;
     let zoomCapabilities = null;
 
+    // ====== НАСТРОЙКА: сканировать только центр кадра ======
+    // Доля от полного кадра (0.5 = центральные 50%)
+    const SCAN_CENTER_FRACTION = 0.6;
+
     // event_id из URL
     const urlParams = new URLSearchParams(window.location.search);
     const eventId = urlParams.get('event_id') || '0';
@@ -415,20 +419,35 @@
         log('Запуск камеры: ' + facingMode);
         setStatus('Запуск камеры...');
 
+        // ============================================================
+        // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ №1:
+        // Не указываем жёсткое разрешение — пусть камера сама выберет
+        // нативное. Указываем только facingMode + автофокус.
+        // Жёсткий ideal: 1280×720 на многих телефонах вызывает
+        // цифровой кроп (камера «зумит» программно) → смазанность.
+        // ============================================================
         const constraintsList = [
             {
                 video: {
                     facingMode: { exact: facingMode },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+                    // Просим широкоугольное поле зрения без кропа
+                    resizeMode: 'none',
+                    // Автофокус непрерывный — КРИТИЧНО для чёткости
+                    focusMode: 'continuous'
                 },
                 audio: false
             },
             {
                 video: {
                     facingMode: facingMode,
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+                    focusMode: 'continuous'
+                },
+                audio: false
+            },
+            {
+                // Совсем простой вариант — просто камера
+                video: {
+                    facingMode: { ideal: facingMode }
                 },
                 audio: false
             },
@@ -459,7 +478,14 @@
         currentTrack = stream.getVideoTracks()[0];
         video.srcObject = stream;
 
-        // Настраиваем зум
+        // ============================================================
+        // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ №2:
+        // После получения трека — принудительно включаем автофокус
+        // и сбрасываем зум на минимум через applyConstraints.
+        // ============================================================
+        await enableAutoFocusAndResetZoom();
+
+        // Настраиваем UI зума
         await setupZoom();
 
         // Сбрасываем вспышку
@@ -482,6 +508,45 @@
             log('Ошибка видео элемента');
             setStatus('Ошибка видео', 'error');
         };
+    }
+
+    // ============================================================
+    // НОВАЯ ФУНКЦИЯ: включаем автофокус + сброс зума
+    // ============================================================
+    async function enableAutoFocusAndResetZoom() {
+        if (!currentTrack) return;
+
+        try {
+            const capabilities = currentTrack.getCapabilities();
+
+            const advancedConstraints = [];
+
+            // --- Автофокус ---
+            if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+                advancedConstraints.push({ focusMode: 'continuous' });
+                log('Автофокус: continuous');
+            } else if (capabilities.focusMode && capabilities.focusMode.includes('auto')) {
+                advancedConstraints.push({ focusMode: 'auto' });
+                log('Автофокус: auto');
+            } else {
+                log('Автофокус: не поддерживается (' +
+                    (capabilities.focusMode || []).join(',') + ')');
+            }
+
+            // --- Сброс зума на минимум ---
+            if (capabilities.zoom) {
+                advancedConstraints.push({ zoom: capabilities.zoom.min });
+                log('Zoom сброшен на ' + capabilities.zoom.min);
+            }
+
+            if (advancedConstraints.length > 0) {
+                await currentTrack.applyConstraints({
+                    advanced: advancedConstraints
+                });
+            }
+        } catch (e) {
+            log('enableAutoFocus ошибка: ' + e.message);
+        }
     }
 
     function stopCamera() {
@@ -508,7 +573,6 @@
 
         try {
             const capabilities = currentTrack.getCapabilities();
-            log('Capabilities: ' + Object.keys(capabilities).join(', '));
 
             if (capabilities.zoom) {
                 zoomCapabilities = capabilities.zoom;
@@ -519,20 +583,14 @@
 
                 log('Zoom: min=' + minZ + ' max=' + maxZ + ' step=' + stepZ);
 
-                // Настраиваем слайдер
                 zoomSlider.min = minZ;
                 zoomSlider.max = maxZ;
                 zoomSlider.step = stepZ;
                 zoomSlider.value = minZ;
                 zoomValueEl.textContent = minZ.toFixed(1) + 'x';
 
-                // Применяем минимальный зум сразу
-                await applyZoom(minZ);
-
-                // Создаём кнопки быстрого выбора
                 createZoomPresets(minZ, maxZ);
 
-                // Показываем панель
                 zoomControl.style.display = 'block';
             } else {
                 log('Камера не поддерживает zoom');
@@ -558,7 +616,6 @@
     function createZoomPresets(minZ, maxZ) {
         zoomPresetsEl.innerHTML = '';
 
-        // Создаём разумные пресеты
         const presets = [];
         presets.push({ label: minZ.toFixed(1) + 'x', value: minZ });
 
@@ -578,7 +635,6 @@
 
         presets.push({ label: maxZ.toFixed(1) + 'x', value: maxZ });
 
-        // Убираем дубликаты
         const unique = [];
         const seen = new Set();
         for (const p of presets) {
@@ -615,7 +671,6 @@
         });
     }
 
-    // Обработчик слайдера
     zoomSlider.addEventListener('input', async () => {
         const val = parseFloat(zoomSlider.value);
         zoomValueEl.textContent = val.toFixed(1) + 'x';
@@ -654,6 +709,13 @@
         animFrameId = requestAnimationFrame(scanFrame);
     }
 
+    // ============================================================
+    // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ №3:
+    // Сканируем только ЦЕНТРАЛЬНУЮ часть кадра.
+    // Это быстрее + соответствует тому, что пользователь видит
+    // в рамке прицела. Также пробуем inversionAttempts: 'attemptBoth'
+    // для лучшего распознавания.
+    // ============================================================
     function scanFrame() {
         if (!scanActive) return;
 
@@ -670,21 +732,29 @@
             return;
         }
 
-        canvas.width = w;
-        canvas.height = h;
-        ctx.drawImage(video, 0, 0, w, h);
+        // Вырезаем центральную область (SCAN_CENTER_FRACTION от кадра)
+        const cropW = Math.floor(w * SCAN_CENTER_FRACTION);
+        const cropH = Math.floor(h * SCAN_CENTER_FRACTION);
+        const cropX = Math.floor((w - cropW) / 2);
+        const cropY = Math.floor((h - cropH) / 2);
+
+        canvas.width = cropW;
+        canvas.height = cropH;
+
+        // Рисуем только центральный кусок
+        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
         let imageData;
         try {
-            imageData = ctx.getImageData(0, 0, w, h);
+            imageData = ctx.getImageData(0, 0, cropW, cropH);
         } catch (e) {
             log('getImageData ошибка: ' + e.message);
             requestScan();
             return;
         }
 
-        const code = jsQR(imageData.data, w, h, {
-            inversionAttempts: 'dontInvert'
+        const code = jsQR(imageData.data, cropW, cropH, {
+            inversionAttempts: 'attemptBoth'
         });
 
         if (code && code.data) {
@@ -701,7 +771,6 @@
         log('QR: ' + qrData);
         setStatus('✅ QR-код считан!', 'success');
 
-        // Вибрация (если поддерживается)
         try {
             if (navigator.vibrate) navigator.vibrate(200);
         } catch (e) {}
