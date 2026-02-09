@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>QR Scanner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .header {
+            padding: 16px;
+            text-align: center;
+            width: 100%;
+            background: #16213e;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .header p {
+            font-size: 13px;
+            color: #a0a0b0;
+            margin-top: 4px;
+        }
+
+        .scanner-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin: 20px auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #video {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 12px;
+            border: 2px solid #0f3460;
+        }
+
+        .overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border: 3px solid #e94560;
+            border-radius: 16px;
+            pointer-events: none;
+        }
+
+        .overlay::before,
+        .overlay::after {
+            content: '';
+            position: absolute;
+            background: #e94560;
+        }
+
+        .status {
+            margin-top: 16px;
+            padding: 12px 24px;
+            background: #16213e;
+            border-radius: 8px;
+            font-size: 14px;
+            text-align: center;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .status.success {
+            background: #1b5e20;
+        }
+
+        .status.error {
+            background: #b71c1c;
+        }
+
+        #canvas {
+            display: none;
+        }
+
+        .switch-btn {
+            margin-top: 12px;
+            padding: 10px 20px;
+            background: #0f3460;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .switch-btn:active {
+            background: #1a5276;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Сканирование QR-кода</h1>
+    <p>Наведите камеру на QR-код участника</p>
+</div>
+
+<div class="scanner-container">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="overlay"></div>
+    <canvas id="canvas"></canvas>
+    <div class="status" id="status">Запуск камеры...</div>
+    <button class="switch-btn" id="switchBtn">Переключить камеру</button>
+</div>
+
+<!-- jsQR библиотека — декодирование QR из кадров видео -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    // Получаем event_id из параметров, переданных через startParam
+    // Формат URL: scanner.html?event_id=123
+    const urlParams = new URLSearchParams(window.location.search);
+    const eventId = urlParams.get('event_id') || '';
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const statusEl = document.getElementById('status');
+    const switchBtn = document.getElementById('switchBtn');
+
+    let currentStream = null;
+    let useFrontCamera = false;
+    let scanning = true;
+    let lastSentData = '';
+    let cooldown = false;
+
+    async function startCamera() {
+        // Останавливаем предыдущий поток
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const constraints = {
+            video: {
+                facingMode: useFrontCamera ? 'user' : 'environment',
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            },
+            audio: false
+        };
+
+        try {
+            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = currentStream;
+            statusEl.textContent = 'Камера активна. Ищу QR-код...';
+            statusEl.className = 'status';
+            requestAnimationFrame(scanFrame);
+        } catch (err) {
+            statusEl.textContent = 'Ошибка доступа к камере: ' + err.message;
+            statusEl.className = 'status error';
+        }
+    }
+
+    function scanFrame() {
+        if (!scanning) return;
+
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: 'dontInvert'
+            });
+
+            if (code && code.data && !cooldown) {
+                const qrData = code.data;
+
+                // Отправляем данные обратно в бот
+                // Формат: EVENT_ID:QR_DATA
+                const payload = JSON.stringify({
+                    event_id: eventId,
+                    qr_ qrData
+                });
+
+                statusEl.textContent = 'QR-код считан! Отправка...';
+                statusEl.className = 'status success';
+
+                // Защита от дублей — кулдаун 3 секунды
+                cooldown = true;
+                lastSentData = qrData;
+
+                // Отправляем данные в Telegram и закрываем
+                tg.sendData(payload);
+
+                // На случай если sendData не закроет окно
+                setTimeout(() => {
+                    cooldown = false;
+                    statusEl.textContent = 'Камера активна. Ищу QR-код...';
+                    statusEl.className = 'status';
+                }, 3000);
+
+                return;
+            }
+        }
+
+        requestAnimationFrame(scanFrame);
+    }
+
+    switchBtn.addEventListener('click', () => {
+        useFrontCamera = !useFrontCamera;
+        startCamera();
+    });
+
+    // Запускаем камеру
+    startCamera();
+</script>
+
+</body>
+</html>
