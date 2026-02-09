@@ -107,6 +107,111 @@
             display: none;
         }
 
+        /* ====== ZOOM SLIDER ====== */
+        .zoom-control {
+            width: 100%;
+            margin-top: 10px;
+            padding: 10px 14px;
+            background: #16213e;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .zoom-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .zoom-label span {
+            font-size: 13px;
+            color: #a0a0b0;
+        }
+
+        .zoom-label .zoom-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e94560;
+            min-width: 40px;
+            text-align: right;
+        }
+
+        .zoom-slider-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .zoom-icon {
+            font-size: 16px;
+            color: #a0a0b0;
+            flex-shrink: 0;
+            user-select: none;
+        }
+
+        .zoom-slider-row input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #0d0d1a;
+            outline: none;
+        }
+
+        .zoom-slider-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #e94560;
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 0 6px rgba(233, 69, 96, 0.5);
+        }
+
+        .zoom-slider-row input[type="range"]::-moz-range-thumb {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #e94560;
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 0 6px rgba(233, 69, 96, 0.5);
+        }
+
+        .zoom-presets {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .zoom-preset-btn {
+            flex: 1;
+            padding: 6px 0;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            background: transparent;
+            color: #a0a0b0;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .zoom-preset-btn.active {
+            background: #e94560;
+            border-color: #e94560;
+            color: #fff;
+        }
+
+        .zoom-preset-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* ====== STATUS & BUTTONS ====== */
         .status {
             margin-top: 12px;
             padding: 12px 20px;
@@ -144,6 +249,7 @@
             font-size: 14px;
             cursor: pointer;
             color: #fff;
+            transition: background 0.2s;
         }
 
         .btn-switch {
@@ -152,6 +258,19 @@
 
         .btn-switch:active {
             background: #1a5276;
+        }
+
+        .btn-flash {
+            background: #533483;
+        }
+
+        .btn-flash:active {
+            background: #6c44a2;
+        }
+
+        .btn-flash.on {
+            background: #f0a500;
+            color: #1a1a2e;
         }
 
         .btn-close {
@@ -184,6 +303,8 @@
 </div>
 
 <div class="scanner-container">
+
+    <!-- Видео -->
     <div class="video-wrapper">
         <video id="video" autoplay playsinline muted></video>
         <div class="scan-region">
@@ -197,38 +318,65 @@
 
     <canvas id="canvas"></canvas>
 
-    <div class="status" id="status">Запуск камеры...</div>
-
-    <div class="btn-row">
-        <button class="btn btn-switch" id="switchBtn">Переключить камеру</button>
-        <button class="btn btn-close" id="closeBtn">Закрыть</button>
+    <!-- Слайдер зума -->
+    <div class="zoom-control" id="zoomControl">
+        <div class="zoom-label">
+            <span>Масштаб камеры</span>
+            <span class="zoom-value" id="zoomValue">1.0x</span>
+        </div>
+        <div class="zoom-slider-row">
+            <span class="zoom-icon">−</span>
+            <input type="range" id="zoomSlider" min="1" max="10" step="0.1" value="1">
+            <span class="zoom-icon">+</span>
+        </div>
+        <div class="zoom-presets" id="zoomPresets"></div>
     </div>
 
+    <!-- Статус -->
+    <div class="status" id="status">Запуск камеры...</div>
+
+    <!-- Кнопки -->
+    <div class="btn-row">
+        <button class="btn btn-switch" id="switchBtn">📷 Камера</button>
+        <button class="btn btn-flash" id="flashBtn">🔦 Вспышка</button>
+        <button class="btn btn-close" id="closeBtn">✕ Закрыть</button>
+    </div>
+
+    <!-- Лог -->
     <div class="debug" id="debug">Лог: инициализация...</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
 <script>
-    // ====== ИНИЦИАЛИЗАЦИЯ ======
+    // ====== ЭЛЕМЕНТЫ ======
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const statusEl = document.getElementById('status');
     const debugEl = document.getElementById('debug');
     const switchBtn = document.getElementById('switchBtn');
+    const flashBtn = document.getElementById('flashBtn');
     const closeBtn = document.getElementById('closeBtn');
+    const zoomControl = document.getElementById('zoomControl');
+    const zoomSlider = document.getElementById('zoomSlider');
+    const zoomValueEl = document.getElementById('zoomValue');
+    const zoomPresetsEl = document.getElementById('zoomPresets');
 
+    // ====== СОСТОЯНИЕ ======
     let currentStream = null;
+    let currentTrack = null;
     let useFrontCamera = false;
+    let flashOn = false;
     let scanActive = true;
     let animFrameId = null;
+    let zoomCapabilities = null;
 
-    // Получаем event_id из URL
+    // event_id из URL
     const urlParams = new URLSearchParams(window.location.search);
     const eventId = urlParams.get('event_id') || '0';
 
-    // Проверяем, запущено ли внутри Telegram WebApp
+    // Telegram WebApp
     let tg = null;
     let isTelegram = false;
     try {
@@ -239,7 +387,7 @@
             isTelegram = true;
             log('Telegram WebApp обнаружен');
         } else {
-            log('Telegram WebApp НЕ обнаружен (автономный режим)');
+            log('Автономный режим (без Telegram)');
         }
     } catch (e) {
         log('Ошибка Telegram WebApp: ' + e.message);
@@ -251,7 +399,7 @@
     function log(msg) {
         const time = new Date().toLocaleTimeString();
         debugEl.textContent = time + ' | ' + msg;
-        console.log(msg);
+        console.log('[QR]', msg);
     }
 
     function setStatus(text, cls) {
@@ -261,16 +409,13 @@
 
     // ====== КАМЕРА ======
     async function startCamera() {
-        // Останавливаем предыдущий поток
         stopCamera();
 
         const facingMode = useFrontCamera ? 'user' : 'environment';
         log('Запуск камеры: ' + facingMode);
         setStatus('Запуск камеры...');
 
-        // Пробуем несколько вариантов constraints
         const constraintsList = [
-            // Вариант 1: точный facingMode
             {
                 video: {
                     facingMode: { exact: facingMode },
@@ -279,7 +424,6 @@
                 },
                 audio: false
             },
-            // Вариант 2: предпочтительный facingMode
             {
                 video: {
                     facingMode: facingMode,
@@ -288,7 +432,6 @@
                 },
                 audio: false
             },
-            // Вариант 3: просто видео
             {
                 video: true,
                 audio: false
@@ -302,33 +445,40 @@
                 log('Камера запущена (вариант ' + (i + 1) + ')');
                 break;
             } catch (err) {
-                log('Вариант ' + (i + 1) + ' не сработал: ' + err.message);
+                log('Вариант ' + (i + 1) + ': ' + err.message);
             }
         }
 
         if (!stream) {
-            setStatus('Не удалось получить доступ к камере', 'error');
+            setStatus('Нет доступа к камере', 'error');
             log('Все варианты камеры провалились');
             return;
         }
 
         currentStream = stream;
+        currentTrack = stream.getVideoTracks()[0];
         video.srcObject = stream;
 
-        // Ждём, пока видео реально начнёт воспроизводиться
+        // Настраиваем зум
+        await setupZoom();
+
+        // Сбрасываем вспышку
+        flashOn = false;
+        flashBtn.classList.remove('on');
+
         video.onloadedmetadata = () => {
             video.play().then(() => {
-                log('Видео запущено: ' + video.videoWidth + 'x' + video.videoHeight);
+                log('Видео: ' + video.videoWidth + 'x' + video.videoHeight);
                 setStatus('Камера активна. Ищу QR-код...');
                 scanActive = true;
                 requestScan();
             }).catch(err => {
                 log('Ошибка play(): ' + err.message);
-                setStatus('Ошибка воспроизведения видео', 'error');
+                setStatus('Ошибка воспроизведения', 'error');
             });
         };
 
-        video.onerror = (e) => {
+        video.onerror = () => {
             log('Ошибка видео элемента');
             setStatus('Ошибка видео', 'error');
         };
@@ -343,11 +493,159 @@
         if (currentStream) {
             currentStream.getTracks().forEach(track => {
                 track.stop();
-                log('Трек остановлен: ' + track.kind);
             });
             currentStream = null;
+            currentTrack = null;
         }
         video.srcObject = null;
+        zoomControl.style.display = 'none';
+        zoomCapabilities = null;
+    }
+
+    // ====== НАСТРОЙКА ЗУМА ======
+    async function setupZoom() {
+        if (!currentTrack) return;
+
+        try {
+            const capabilities = currentTrack.getCapabilities();
+            log('Capabilities: ' + Object.keys(capabilities).join(', '));
+
+            if (capabilities.zoom) {
+                zoomCapabilities = capabilities.zoom;
+
+                const minZ = zoomCapabilities.min;
+                const maxZ = zoomCapabilities.max;
+                const stepZ = zoomCapabilities.step || 0.1;
+
+                log('Zoom: min=' + minZ + ' max=' + maxZ + ' step=' + stepZ);
+
+                // Настраиваем слайдер
+                zoomSlider.min = minZ;
+                zoomSlider.max = maxZ;
+                zoomSlider.step = stepZ;
+                zoomSlider.value = minZ;
+                zoomValueEl.textContent = minZ.toFixed(1) + 'x';
+
+                // Применяем минимальный зум сразу
+                await applyZoom(minZ);
+
+                // Создаём кнопки быстрого выбора
+                createZoomPresets(minZ, maxZ);
+
+                // Показываем панель
+                zoomControl.style.display = 'block';
+            } else {
+                log('Камера не поддерживает zoom');
+                zoomControl.style.display = 'none';
+            }
+        } catch (e) {
+            log('getCapabilities ошибка: ' + e.message);
+            zoomControl.style.display = 'none';
+        }
+    }
+
+    async function applyZoom(value) {
+        if (!currentTrack) return;
+        try {
+            await currentTrack.applyConstraints({
+                advanced: [{ zoom: value }]
+            });
+        } catch (e) {
+            log('applyZoom ошибка: ' + e.message);
+        }
+    }
+
+    function createZoomPresets(minZ, maxZ) {
+        zoomPresetsEl.innerHTML = '';
+
+        // Создаём разумные пресеты
+        const presets = [];
+        presets.push({ label: minZ.toFixed(1) + 'x', value: minZ });
+
+        const range = maxZ - minZ;
+        if (range > 0.5) {
+            const quarter = minZ + range * 0.25;
+            presets.push({ label: quarter.toFixed(1) + 'x', value: quarter });
+        }
+        if (range > 1) {
+            const half = minZ + range * 0.5;
+            presets.push({ label: half.toFixed(1) + 'x', value: half });
+        }
+        if (range > 2) {
+            const three = minZ + range * 0.75;
+            presets.push({ label: three.toFixed(1) + 'x', value: three });
+        }
+
+        presets.push({ label: maxZ.toFixed(1) + 'x', value: maxZ });
+
+        // Убираем дубликаты
+        const unique = [];
+        const seen = new Set();
+        for (const p of presets) {
+            const key = p.value.toFixed(1);
+            if (!seen.has(key)) {
+                seen.add(key);
+                unique.push(p);
+            }
+        }
+
+        unique.forEach((preset, idx) => {
+            const btn = document.createElement('button');
+            btn.className = 'zoom-preset-btn' + (idx === 0 ? ' active' : '');
+            btn.textContent = preset.label;
+            btn.addEventListener('click', async () => {
+                zoomSlider.value = preset.value;
+                zoomValueEl.textContent = preset.value.toFixed(1) + 'x';
+                await applyZoom(preset.value);
+                updatePresetActive(preset.value);
+            });
+            zoomPresetsEl.appendChild(btn);
+        });
+    }
+
+    function updatePresetActive(currentValue) {
+        const btns = zoomPresetsEl.querySelectorAll('.zoom-preset-btn');
+        btns.forEach(btn => {
+            const btnVal = parseFloat(btn.textContent);
+            if (Math.abs(btnVal - currentValue) < 0.05) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    // Обработчик слайдера
+    zoomSlider.addEventListener('input', async () => {
+        const val = parseFloat(zoomSlider.value);
+        zoomValueEl.textContent = val.toFixed(1) + 'x';
+        await applyZoom(val);
+        updatePresetActive(val);
+    });
+
+    // ====== ВСПЫШКА (ФОНАРИК) ======
+    async function toggleFlash() {
+        if (!currentTrack) return;
+
+        try {
+            const capabilities = currentTrack.getCapabilities();
+            if (!capabilities.torch) {
+                log('Вспышка не поддерживается');
+                setStatus('Вспышка недоступна', 'warning');
+                setTimeout(() => setStatus('Камера активна. Ищу QR-код...'), 2000);
+                return;
+            }
+
+            flashOn = !flashOn;
+            await currentTrack.applyConstraints({
+                advanced: [{ torch: flashOn }]
+            });
+
+            flashBtn.classList.toggle('on', flashOn);
+            log('Вспышка: ' + (flashOn ? 'ВКЛ' : 'ВЫКЛ'));
+        } catch (e) {
+            log('Ошибка вспышки: ' + e.message);
+        }
     }
 
     // ====== СКАНИРОВАНИЕ ======
@@ -360,7 +658,6 @@
         if (!scanActive) return;
 
         if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-            // Видео ещё не готово — ждём
             requestScan();
             return;
         }
@@ -381,7 +678,7 @@
         try {
             imageData = ctx.getImageData(0, 0, w, h);
         } catch (e) {
-            log('Ошибка getImageData: ' + e.message);
+            log('getImageData ошибка: ' + e.message);
             requestScan();
             return;
         }
@@ -395,60 +692,63 @@
             return;
         }
 
-        // Продолжаем сканирование
         requestScan();
     }
 
     // ====== QR НАЙДЕН ======
     function onQRDetected(qrData) {
         scanActive = false;
-        log('QR обнаружен: ' + qrData);
-        setStatus('QR-код считан: ' + qrData, 'success');
+        log('QR: ' + qrData);
+        setStatus('✅ QR-код считан!', 'success');
+
+        // Вибрация (если поддерживается)
+        try {
+            if (navigator.vibrate) navigator.vibrate(200);
+        } catch (e) {}
 
         const payload = JSON.stringify({
             event_id: eventId,
-            "qr_data": qrData
+            qr_ qrData
         });
 
-        log('Отправка: ' + payload);
+        log('Payload: ' + payload);
 
         if (isTelegram) {
             try {
                 tg.sendData(payload);
                 log('sendData() вызван');
-                // WebApp должен закрыться автоматически
-                // На всякий случай закрываем через 2 секунды
                 setTimeout(() => {
                     try { tg.close(); } catch(e) {}
                 }, 2000);
             } catch (e) {
-                log('Ошибка sendData: ' + e.message);
-                setStatus('Ошибка отправки данных', 'error');
-                // Даём возможность сканировать снова
-                setTimeout(() => {
-                    scanActive = true;
-                    requestScan();
-                    setStatus('Камера активна. Ищу QR-код...');
-                }, 3000);
+                log('sendData ошибка: ' + e.message);
+                setStatus('Ошибка отправки', 'error');
+                resumeScanAfterDelay();
             }
         } else {
-            // Автономный режим — просто показываем результат
-            setStatus('QR: ' + qrData + '\nevent_id: ' + eventId, 'success');
+            setStatus('QR: ' + qrData, 'success');
             log('Автономный режим — данные не отправлены');
-            // Продолжаем сканирование через 3 секунды
-            setTimeout(() => {
-                scanActive = true;
-                requestScan();
-                setStatus('Камера активна. Ищу QR-код...');
-            }, 3000);
+            resumeScanAfterDelay();
         }
+    }
+
+    function resumeScanAfterDelay() {
+        setTimeout(() => {
+            scanActive = true;
+            requestScan();
+            setStatus('Камера активна. Ищу QR-код...');
+        }, 3000);
     }
 
     // ====== КНОПКИ ======
     switchBtn.addEventListener('click', () => {
         useFrontCamera = !useFrontCamera;
-        log('Переключение камеры: ' + (useFrontCamera ? 'фронтальная' : 'задняя'));
+        log('Камера: ' + (useFrontCamera ? 'фронтальная' : 'задняя'));
         startCamera();
+    });
+
+    flashBtn.addEventListener('click', () => {
+        toggleFlash();
     });
 
     closeBtn.addEventListener('click', () => {
@@ -460,18 +760,16 @@
     });
 
     // ====== ЗАПУСК ======
-    // Проверяем поддержку камеры
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         log('getUserMedia поддерживается');
         startCamera();
     } else {
-        setStatus('Камера не поддерживается в этом браузере', 'error');
+        setStatus('Камера не поддерживается', 'error');
         log('getUserMedia НЕ поддерживается');
 
-        // Пробуем через HTTPS-проверку
         if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            log('ВНИМАНИЕ: страница открыта не через HTTPS!');
-            setStatus('Камера требует HTTPS. Текущий протокол: ' + location.protocol, 'error');
+            log('Страница открыта не через HTTPS!');
+            setStatus('Нужен HTTPS для камеры. Протокол: ' + location.protocol, 'error');
         }
     }
 </script>
