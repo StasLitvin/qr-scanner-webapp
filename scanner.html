@@ -107,7 +107,6 @@
             display: none;
         }
 
-        /* ====== ZOOM SLIDER ====== */
         .zoom-control {
             width: 100%;
             margin-top: 10px;
@@ -211,7 +210,6 @@
             transform: scale(0.95);
         }
 
-        /* ====== STATUS & BUTTONS ====== */
         .status {
             margin-top: 12px;
             padding: 12px 20px;
@@ -222,17 +220,9 @@
             width: 100%;
         }
 
-        .status.success {
-            background: #1b5e20;
-        }
-
-        .status.error {
-            background: #b71c1c;
-        }
-
-        .status.warning {
-            background: #e65100;
-        }
+        .status.success { background: #1b5e20; }
+        .status.error { background: #b71c1c; }
+        .status.warning { background: #e65100; }
 
         .btn-row {
             display: flex;
@@ -252,34 +242,13 @@
             transition: background 0.2s;
         }
 
-        .btn-switch {
-            background: #0f3460;
-        }
-
-        .btn-switch:active {
-            background: #1a5276;
-        }
-
-        .btn-flash {
-            background: #533483;
-        }
-
-        .btn-flash:active {
-            background: #6c44a2;
-        }
-
-        .btn-flash.on {
-            background: #f0a500;
-            color: #1a1a2e;
-        }
-
-        .btn-close {
-            background: #b71c1c;
-        }
-
-        .btn-close:active {
-            background: #d32f2f;
-        }
+        .btn-switch { background: #0f3460; }
+        .btn-switch:active { background: #1a5276; }
+        .btn-flash { background: #533483; }
+        .btn-flash:active { background: #6c44a2; }
+        .btn-flash.on { background: #f0a500; color: #1a1a2e; }
+        .btn-close { background: #b71c1c; }
+        .btn-close:active { background: #d32f2f; }
 
         .debug {
             margin-top: 8px;
@@ -289,7 +258,7 @@
             font-size: 11px;
             color: #666;
             width: 100%;
-            max-height: 80px;
+            max-height: 120px;
             overflow-y: auto;
             word-break: break-all;
         }
@@ -303,8 +272,6 @@
 </div>
 
 <div class="scanner-container">
-
-    <!-- Видео -->
     <div class="video-wrapper">
         <video id="video" autoplay playsinline muted></video>
         <div class="scan-region">
@@ -318,7 +285,6 @@
 
     <canvas id="canvas"></canvas>
 
-    <!-- Слайдер зума -->
     <div class="zoom-control" id="zoomControl">
         <div class="zoom-label">
             <span>Масштаб камеры</span>
@@ -332,24 +298,20 @@
         <div class="zoom-presets" id="zoomPresets"></div>
     </div>
 
-    <!-- Статус -->
     <div class="status" id="status">Запуск камеры...</div>
 
-    <!-- Кнопки -->
     <div class="btn-row">
         <button class="btn btn-switch" id="switchBtn">📷 Камера</button>
         <button class="btn btn-flash" id="flashBtn">🔦 Вспышка</button>
         <button class="btn btn-close" id="closeBtn">✕ Закрыть</button>
     </div>
 
-    <!-- Лог -->
     <div class="debug" id="debug">Лог: инициализация...</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
 <script>
-    // ====== ЭЛЕМЕНТЫ ======
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -363,7 +325,6 @@
     const zoomValueEl = document.getElementById('zoomValue');
     const zoomPresetsEl = document.getElementById('zoomPresets');
 
-    // ====== СОСТОЯНИЕ ======
     let currentStream = null;
     let currentTrack = null;
     let useFrontCamera = false;
@@ -371,16 +332,13 @@
     let scanActive = true;
     let animFrameId = null;
     let zoomCapabilities = null;
+    let debugLines = [];
 
-    // ====== НАСТРОЙКА: сканировать только центр кадра ======
-    // Доля от полного кадра (0.5 = центральные 50%)
     const SCAN_CENTER_FRACTION = 0.6;
 
-    // event_id из URL
     const urlParams = new URLSearchParams(window.location.search);
     const eventId = urlParams.get('event_id') || '0';
 
-    // Telegram WebApp
     let tg = null;
     let isTelegram = false;
     try {
@@ -391,18 +349,21 @@
             isTelegram = true;
             log('Telegram WebApp обнаружен');
         } else {
-            log('Автономный режим (без Telegram)');
+            log('Автономный режим');
         }
     } catch (e) {
-        log('Ошибка Telegram WebApp: ' + e.message);
+        log('TG ошибка: ' + e.message);
     }
 
     log('event_id = ' + eventId);
 
-    // ====== ЛОГИРОВАНИЕ ======
     function log(msg) {
         const time = new Date().toLocaleTimeString();
-        debugEl.textContent = time + ' | ' + msg;
+        const line = time + ' | ' + msg;
+        debugLines.push(line);
+        if (debugLines.length > 15) debugLines.shift();
+        debugEl.textContent = debugLines.join('\n');
+        debugEl.scrollTop = debugEl.scrollHeight;
         console.log('[QR]', msg);
     }
 
@@ -411,46 +372,60 @@
         statusEl.className = 'status' + (cls ? ' ' + cls : '');
     }
 
-    // ====== КАМЕРА ======
+    // ============================================================
+    // КАМЕРА — правильные constraints
+    // ============================================================
     async function startCamera() {
         stopCamera();
 
         const facingMode = useFrontCamera ? 'user' : 'environment';
-        log('Запуск камеры: ' + facingMode);
+        log('Запуск: ' + facingMode);
         setStatus('Запуск камеры...');
 
         // ============================================================
-        // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ №1:
-        // Не указываем жёсткое разрешение — пусть камера сама выберет
-        // нативное. Указываем только facingMode + автофокус.
-        // Жёсткий ideal: 1280×720 на многих телефонах вызывает
-        // цифровой кроп (камера «зумит» программно) → смазанность.
+        // Стратегия: запрашиваем ВЫСОКОЕ разрешение через ideal,
+        // НЕ через exact. Камера сама выберет ближайшее нативное.
+        // Ключ: НЕ указываем width+height exact — только ideal.
+        // ideal: 1920x1080 → камера даст Full HD если может,
+        // или ближайшее меньшее БЕЗ цифрового кропа.
         // ============================================================
         const constraintsList = [
+            // Вариант 1: задняя камера, высокое разрешение
             {
                 video: {
                     facingMode: { exact: facingMode },
-                    // Просим широкоугольное поле зрения без кропа
-                    resizeMode: 'none',
-                    // Автофокус непрерывный — КРИТИЧНО для чёткости
-                    focusMode: 'continuous'
+                    width: { ideal: 1920, min: 640 },
+                    height: { ideal: 1080, min: 480 }
                 },
                 audio: false
             },
+            // Вариант 2: без exact facingMode
             {
                 video: {
                     facingMode: facingMode,
-                    focusMode: 'continuous'
+                    width: { ideal: 1920, min: 640 },
+                    height: { ideal: 1080, min: 480 }
                 },
                 audio: false
             },
+            // Вариант 3: только facingMode ideal
             {
-                // Совсем простой вариант — просто камера
                 video: {
-                    facingMode: { ideal: facingMode }
+                    facingMode: { ideal: facingMode },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
                 },
                 audio: false
             },
+            // Вариант 4: любая камера с разрешением
+            {
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            },
+            // Вариант 5: совсем fallback
             {
                 video: true,
                 audio: false
@@ -461,16 +436,16 @@
         for (let i = 0; i < constraintsList.length; i++) {
             try {
                 stream = await navigator.mediaDevices.getUserMedia(constraintsList[i]);
-                log('Камера запущена (вариант ' + (i + 1) + ')');
+                log('Камера OK (вариант ' + (i + 1) + ')');
                 break;
             } catch (err) {
-                log('Вариант ' + (i + 1) + ': ' + err.message);
+                log('Вариант ' + (i + 1) + ' fail: ' + err.name);
             }
         }
 
         if (!stream) {
             setStatus('Нет доступа к камере', 'error');
-            log('Все варианты камеры провалились');
+            log('Все варианты провалились');
             return;
         }
 
@@ -478,17 +453,18 @@
         currentTrack = stream.getVideoTracks()[0];
         video.srcObject = stream;
 
-        // ============================================================
-        // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ №2:
-        // После получения трека — принудительно включаем автофокус
-        // и сбрасываем зум на минимум через applyConstraints.
-        // ============================================================
-        await enableAutoFocusAndResetZoom();
+        // Логируем что получили
+        const settings = currentTrack.getSettings();
+        log('Track settings: ' + settings.width + 'x' + settings.height +
+            ' facing=' + (settings.facingMode || '?'));
 
-        // Настраиваем UI зума
+        // ============================================================
+        // ПОСЛЕ получения трека — настраиваем фокус и зум
+        // через applyConstraints (не через getUserMedia!)
+        // ============================================================
+        await tuneTrack();
         await setupZoom();
 
-        // Сбрасываем вспышку
         flashOn = false;
         flashBtn.classList.remove('on');
 
@@ -499,53 +475,57 @@
                 scanActive = true;
                 requestScan();
             }).catch(err => {
-                log('Ошибка play(): ' + err.message);
+                log('play() ошибка: ' + err.message);
                 setStatus('Ошибка воспроизведения', 'error');
             });
         };
 
         video.onerror = () => {
-            log('Ошибка видео элемента');
+            log('Ошибка видео');
             setStatus('Ошибка видео', 'error');
         };
     }
 
     // ============================================================
-    // НОВАЯ ФУНКЦИЯ: включаем автофокус + сброс зума
+    // Тонкая настройка трека: автофокус + сброс зума
     // ============================================================
-    async function enableAutoFocusAndResetZoom() {
+    async function tuneTrack() {
         if (!currentTrack) return;
 
         try {
-            const capabilities = currentTrack.getCapabilities();
+            const caps = currentTrack.getCapabilities();
+            const advanced = [];
 
-            const advancedConstraints = [];
+            // Логируем все capabilities для отладки
+            log('Caps keys: ' + Object.keys(caps).join(', '));
 
             // --- Автофокус ---
-            if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
-                advancedConstraints.push({ focusMode: 'continuous' });
-                log('Автофокус: continuous');
-            } else if (capabilities.focusMode && capabilities.focusMode.includes('auto')) {
-                advancedConstraints.push({ focusMode: 'auto' });
-                log('Автофокус: auto');
+            if (caps.focusMode) {
+                log('focusModes: ' + caps.focusMode.join(', '));
+                if (caps.focusMode.includes('continuous')) {
+                    advanced.push({ focusMode: 'continuous' });
+                    log('→ focusMode: continuous');
+                } else if (caps.focusMode.includes('auto')) {
+                    advanced.push({ focusMode: 'auto' });
+                    log('→ focusMode: auto');
+                }
             } else {
-                log('Автофокус: не поддерживается (' +
-                    (capabilities.focusMode || []).join(',') + ')');
+                log('focusMode не поддерживается');
             }
 
             // --- Сброс зума на минимум ---
-            if (capabilities.zoom) {
-                advancedConstraints.push({ zoom: capabilities.zoom.min });
-                log('Zoom сброшен на ' + capabilities.zoom.min);
+            if (caps.zoom) {
+                advanced.push({ zoom: caps.zoom.min });
+                log('→ zoom сброшен на ' + caps.zoom.min);
             }
 
-            if (advancedConstraints.length > 0) {
-                await currentTrack.applyConstraints({
-                    advanced: advancedConstraints
-                });
+            // --- Применяем ---
+            if (advanced.length > 0) {
+                await currentTrack.applyConstraints({ advanced: advanced });
+                log('applyConstraints OK');
             }
         } catch (e) {
-            log('enableAutoFocus ошибка: ' + e.message);
+            log('tuneTrack ошибка: ' + e.message);
         }
     }
 
@@ -556,9 +536,7 @@
             animFrameId = null;
         }
         if (currentStream) {
-            currentStream.getTracks().forEach(track => {
-                track.stop();
-            });
+            currentStream.getTracks().forEach(t => t.stop());
             currentStream = null;
             currentTrack = null;
         }
@@ -567,21 +545,18 @@
         zoomCapabilities = null;
     }
 
-    // ====== НАСТРОЙКА ЗУМА ======
+    // ====== ZOOM UI ======
     async function setupZoom() {
         if (!currentTrack) return;
-
         try {
-            const capabilities = currentTrack.getCapabilities();
-
-            if (capabilities.zoom) {
-                zoomCapabilities = capabilities.zoom;
-
+            const caps = currentTrack.getCapabilities();
+            if (caps.zoom) {
+                zoomCapabilities = caps.zoom;
                 const minZ = zoomCapabilities.min;
                 const maxZ = zoomCapabilities.max;
                 const stepZ = zoomCapabilities.step || 0.1;
 
-                log('Zoom: min=' + minZ + ' max=' + maxZ + ' step=' + stepZ);
+                log('Zoom UI: ' + minZ + ' - ' + maxZ);
 
                 zoomSlider.min = minZ;
                 zoomSlider.max = maxZ;
@@ -590,14 +565,11 @@
                 zoomValueEl.textContent = minZ.toFixed(1) + 'x';
 
                 createZoomPresets(minZ, maxZ);
-
                 zoomControl.style.display = 'block';
             } else {
-                log('Камера не поддерживает zoom');
                 zoomControl.style.display = 'none';
             }
         } catch (e) {
-            log('getCapabilities ошибка: ' + e.message);
             zoomControl.style.display = 'none';
         }
     }
@@ -605,44 +577,28 @@
     async function applyZoom(value) {
         if (!currentTrack) return;
         try {
-            await currentTrack.applyConstraints({
-                advanced: [{ zoom: value }]
-            });
+            await currentTrack.applyConstraints({ advanced: [{ zoom: value }] });
         } catch (e) {
-            log('applyZoom ошибка: ' + e.message);
+            log('zoom ошибка: ' + e.message);
         }
     }
 
     function createZoomPresets(minZ, maxZ) {
         zoomPresetsEl.innerHTML = '';
-
         const presets = [];
         presets.push({ label: minZ.toFixed(1) + 'x', value: minZ });
 
         const range = maxZ - minZ;
-        if (range > 0.5) {
-            const quarter = minZ + range * 0.25;
-            presets.push({ label: quarter.toFixed(1) + 'x', value: quarter });
-        }
-        if (range > 1) {
-            const half = minZ + range * 0.5;
-            presets.push({ label: half.toFixed(1) + 'x', value: half });
-        }
-        if (range > 2) {
-            const three = minZ + range * 0.75;
-            presets.push({ label: three.toFixed(1) + 'x', value: three });
-        }
-
+        if (range > 0.5) presets.push({ label: (minZ + range * 0.25).toFixed(1) + 'x', value: minZ + range * 0.25 });
+        if (range > 1) presets.push({ label: (minZ + range * 0.5).toFixed(1) + 'x', value: minZ + range * 0.5 });
+        if (range > 2) presets.push({ label: (minZ + range * 0.75).toFixed(1) + 'x', value: minZ + range * 0.75 });
         presets.push({ label: maxZ.toFixed(1) + 'x', value: maxZ });
 
         const unique = [];
         const seen = new Set();
         for (const p of presets) {
             const key = p.value.toFixed(1);
-            if (!seen.has(key)) {
-                seen.add(key);
-                unique.push(p);
-            }
+            if (!seen.has(key)) { seen.add(key); unique.push(p); }
         }
 
         unique.forEach((preset, idx) => {
@@ -659,15 +615,10 @@
         });
     }
 
-    function updatePresetActive(currentValue) {
-        const btns = zoomPresetsEl.querySelectorAll('.zoom-preset-btn');
-        btns.forEach(btn => {
-            const btnVal = parseFloat(btn.textContent);
-            if (Math.abs(btnVal - currentValue) < 0.05) {
-                btn.classList.add('active');
-            } else {
-                btn.classList.remove('active');
-            }
+    function updatePresetActive(val) {
+        zoomPresetsEl.querySelectorAll('.zoom-preset-btn').forEach(btn => {
+            const v = parseFloat(btn.textContent);
+            btn.classList.toggle('active', Math.abs(v - val) < 0.05);
         });
     }
 
@@ -678,28 +629,22 @@
         updatePresetActive(val);
     });
 
-    // ====== ВСПЫШКА (ФОНАРИК) ======
+    // ====== ВСПЫШКА ======
     async function toggleFlash() {
         if (!currentTrack) return;
-
         try {
-            const capabilities = currentTrack.getCapabilities();
-            if (!capabilities.torch) {
-                log('Вспышка не поддерживается');
+            const caps = currentTrack.getCapabilities();
+            if (!caps.torch) {
                 setStatus('Вспышка недоступна', 'warning');
                 setTimeout(() => setStatus('Камера активна. Ищу QR-код...'), 2000);
                 return;
             }
-
             flashOn = !flashOn;
-            await currentTrack.applyConstraints({
-                advanced: [{ torch: flashOn }]
-            });
-
+            await currentTrack.applyConstraints({ advanced: [{ torch: flashOn }] });
             flashBtn.classList.toggle('on', flashOn);
             log('Вспышка: ' + (flashOn ? 'ВКЛ' : 'ВЫКЛ'));
         } catch (e) {
-            log('Ошибка вспышки: ' + e.message);
+            log('Вспышка ошибка: ' + e.message);
         }
     }
 
@@ -709,30 +654,15 @@
         animFrameId = requestAnimationFrame(scanFrame);
     }
 
-    // ============================================================
-    // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ №3:
-    // Сканируем только ЦЕНТРАЛЬНУЮ часть кадра.
-    // Это быстрее + соответствует тому, что пользователь видит
-    // в рамке прицела. Также пробуем inversionAttempts: 'attemptBoth'
-    // для лучшего распознавания.
-    // ============================================================
     function scanFrame() {
         if (!scanActive) return;
-
-        if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-            requestScan();
-            return;
-        }
+        if (video.readyState !== video.HAVE_ENOUGH_DATA) { requestScan(); return; }
 
         const w = video.videoWidth;
         const h = video.videoHeight;
+        if (w === 0 || h === 0) { requestScan(); return; }
 
-        if (w === 0 || h === 0) {
-            requestScan();
-            return;
-        }
-
-        // Вырезаем центральную область (SCAN_CENTER_FRACTION от кадра)
+        // Сканируем центральные 60% кадра
         const cropW = Math.floor(w * SCAN_CENTER_FRACTION);
         const cropH = Math.floor(h * SCAN_CENTER_FRACTION);
         const cropX = Math.floor((w - cropW) / 2);
@@ -740,15 +670,12 @@
 
         canvas.width = cropW;
         canvas.height = cropH;
-
-        // Рисуем только центральный кусок
         ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
         let imageData;
         try {
             imageData = ctx.getImageData(0, 0, cropW, cropH);
         } catch (e) {
-            log('getImageData ошибка: ' + e.message);
             requestScan();
             return;
         }
@@ -771,13 +698,11 @@
         log('QR: ' + qrData);
         setStatus('✅ QR-код считан!', 'success');
 
-        try {
-            if (navigator.vibrate) navigator.vibrate(200);
-        } catch (e) {}
+        try { if (navigator.vibrate) navigator.vibrate(200); } catch (e) {}
 
         const payload = JSON.stringify({
             event_id: eventId,
-            "qr_Data": qrData
+            qr_Data: qrData
         });
 
         log('Payload: ' + payload);
@@ -785,10 +710,8 @@
         if (isTelegram) {
             try {
                 tg.sendData(payload);
-                log('sendData() вызван');
-                setTimeout(() => {
-                    try { tg.close(); } catch(e) {}
-                }, 2000);
+                log('sendData() OK');
+                setTimeout(() => { try { tg.close(); } catch(e) {} }, 2000);
             } catch (e) {
                 log('sendData ошибка: ' + e.message);
                 setStatus('Ошибка отправки', 'error');
@@ -796,7 +719,6 @@
             }
         } else {
             setStatus('QR: ' + qrData, 'success');
-            log('Автономный режим — данные не отправлены');
             resumeScanAfterDelay();
         }
     }
@@ -812,33 +734,27 @@
     // ====== КНОПКИ ======
     switchBtn.addEventListener('click', () => {
         useFrontCamera = !useFrontCamera;
-        log('Камера: ' + (useFrontCamera ? 'фронтальная' : 'задняя'));
+        log('Переключение: ' + (useFrontCamera ? 'фронт' : 'задняя'));
         startCamera();
     });
 
-    flashBtn.addEventListener('click', () => {
-        toggleFlash();
-    });
+    flashBtn.addEventListener('click', () => toggleFlash());
 
     closeBtn.addEventListener('click', () => {
         stopCamera();
-        if (isTelegram) {
-            try { tg.close(); } catch(e) {}
-        }
+        if (isTelegram) { try { tg.close(); } catch(e) {} }
         setStatus('Сканер закрыт');
     });
 
     // ====== ЗАПУСК ======
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        log('getUserMedia поддерживается');
+        log('getUserMedia OK');
         startCamera();
     } else {
         setStatus('Камера не поддерживается', 'error');
         log('getUserMedia НЕ поддерживается');
-
         if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            log('Страница открыта не через HTTPS!');
-            setStatus('Нужен HTTPS для камеры. Протокол: ' + location.protocol, 'error');
+            setStatus('Нужен HTTPS! Протокол: ' + location.protocol, 'error');
         }
     }
 </script>
