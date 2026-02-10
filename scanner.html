@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>QR Scanner</title>
+
+  <!-- ✅ КРИТИЧЕСКИ ВАЖНО: Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -25,7 +29,7 @@
     }
 
     .header h1 { font-size: 18px; font-weight: 600; }
-    .header p { font-size: 13px; color: #a0a0b0; margin-top: 4px; }
+    .header p  { font-size: 13px; color: #a0a0b0; margin-top: 4px; }
 
     .scanner-container {
       position: relative;
@@ -176,9 +180,9 @@
 
   <div class="btn-row">
     <button class="btn btn-switch" id="switchBtn">📷 Камера</button>
-    <button class="btn btn-lens" id="lensBtn">🔁 Линза</button>
-    <button class="btn btn-flash" id="flashBtn">🔦 Вспышка</button>
-    <button class="btn btn-close" id="closeBtn">✕ Закрыть</button>
+    <button class="btn btn-lens"   id="lensBtn">🔁 Линза</button>
+    <button class="btn btn-flash"  id="flashBtn">🔦 Вспышка</button>
+    <button class="btn btn-close"  id="closeBtn">✕ Закрыть</button>
   </div>
 
   <div class="debug" id="debug">Лог: инициализация...</div>
@@ -219,8 +223,29 @@
   var urlParams = new URLSearchParams(window.location.search);
   var eventId   = urlParams.get('event_id') || '0';
 
+  // =============================================
+  // Telegram WebApp — инициализация
+  // =============================================
   var tg         = null;
   var isTelegram = false;
+
+  try {
+    if (window.Telegram && window.Telegram.WebApp) {
+      tg = window.Telegram.WebApp;
+      isTelegram = true;
+
+      // Раскрыть на весь экран и сообщить о готовности
+      tg.expand();
+      tg.ready();
+
+      // Запрет закрытия свайпом вниз (чтобы не терять сессию сканера)
+      if (typeof tg.disableClosingConfirmation === 'function') {
+        tg.enableClosingConfirmation();
+      }
+    }
+  } catch (e) {
+    // будет залогировано ниже
+  }
 
   // =============================================
   // Утилиты
@@ -253,31 +278,21 @@
     });
   }
 
-  // =============================================
-  // Telegram WebApp
-  // =============================================
-  try {
-    if (window.Telegram && window.Telegram.WebApp) {
-      tg = window.Telegram.WebApp;
-      tg.expand();
-      tg.ready();
-      isTelegram = true;
-      log('Telegram WebApp обнаружен');
-    } else {
-      log('Автономный режим');
-    }
-  } catch (e) {
-    log('TG ошибка: ' + e.message);
+  // --- начальные логи ---
+  if (isTelegram) {
+    log('Telegram WebApp обнаружен ✅');
+    log('initData length: ' + (tg.initData || '').length);
+    log('platform: ' + (tg.platform || '?'));
+  } else {
+    log('⚠ Автономный режим (не Telegram)');
   }
-
   log('event_id = ' + eventId);
 
   // =============================================
-  // Загрузка jsQR (локально, с CDN-фолбэком)
+  // Загрузка jsQR
   // =============================================
   function loadJsQR() {
     return new Promise(function(resolve, reject) {
-      // Если уже загружен (например, был inline)
       if (typeof jsQR === 'function') {
         log('jsQR уже доступен');
         resolve();
@@ -294,7 +309,7 @@
 
       function tryNext() {
         if (index >= sources.length) {
-          reject(new Error('Не удалось загрузить jsQR ни из одного источника'));
+          reject(new Error('Не удалось загрузить jsQR'));
           return;
         }
 
@@ -309,7 +324,7 @@
             log('jsQR загружен OK: ' + src);
             resolve();
           } else {
-            log('jsQR загружен, но функция не найдена: ' + src);
+            log('jsQR загружен, но функция не найдена');
             tryNext();
           }
         };
@@ -341,9 +356,9 @@
 
       var scored = vids.map(function(d) {
         var label = (d.label || '').trim();
-        var scoreBack = 0;
+        var scoreBack  = 0;
         var scoreFront = 0;
-        var penalty = 0;
+        var penalty    = 0;
 
         if (isBack(label))   { scoreBack  += 10; }
         if (isFront(label))  { scoreFront += 10; }
@@ -369,7 +384,7 @@
         .sort(function(a, b) { return (b.scoreFront - b.penalty) - (a.scoreFront - a.penalty); })
         .filter(function(x) { return x.scoreFront > 0 || (!x.label && x.deviceId); });
 
-      log('Найдено камер: всего=' + vids.length +
+      log('Камер: всего=' + vids.length +
           ' back=' + backCams.length +
           ' front=' + frontCams.length);
 
@@ -420,7 +435,7 @@
     )
     .then(function(s) {
       stream = s;
-      log('Камера OK (первичный старт по facingMode)');
+      log('Камера OK (facingMode)');
 
       currentStream = stream;
       currentTrack  = stream.getVideoTracks()[0];
@@ -431,18 +446,17 @@
       });
     })
     .then(function() {
-      // Выбираем конкретную камеру по deviceId
       var chosen = null;
 
       if (!useFrontCamera) {
         chosen = backCams[backIndex] ? backCams[backIndex].deviceId : null;
         if (chosen) {
-          log('Пробую заднюю по deviceId (index=' + backIndex + ')');
+          log('Пробую заднюю deviceId (index=' + backIndex + ')');
         }
       } else {
         chosen = frontCams[frontIndex] ? frontCams[frontIndex].deviceId : null;
         if (chosen) {
-          log('Пробую фронт по deviceId (index=' + frontIndex + ')');
+          log('Пробую фронт deviceId (index=' + frontIndex + ')');
         }
       }
 
@@ -451,7 +465,6 @@
         return Promise.resolve();
       }
 
-      // Останавливаем первый поток и открываем по deviceId
       if (currentStream) {
         currentStream.getTracks().forEach(function(t) { t.stop(); });
       }
@@ -463,14 +476,13 @@
         currentStream   = s2;
         currentTrack    = s2.getVideoTracks()[0];
         video.srcObject = s2;
-        log('Открыта камера по deviceId ✅');
+        log('Камера по deviceId ✅');
       })
       .catch(function(e) {
-        log('deviceId старт fail: ' + e.name + ' / ' + e.message);
+        log('deviceId fail: ' + e.name + ' / ' + e.message);
       });
     })
     .then(function() {
-      // Лог настроек трека
       try {
         var s = currentTrack.getSettings();
         log('Track: ' + (s.width || '?') + 'x' + (s.height || '?') +
@@ -509,11 +521,10 @@
 
     try {
       var caps = currentTrack.getCapabilities();
-      log('Caps keys: ' + Object.keys(caps).join(', '));
+      log('Caps: ' + Object.keys(caps).join(', '));
 
       var chain = Promise.resolve();
 
-      // 1) continuous focus
       if (caps.focusMode && caps.focusMode.indexOf('continuous') !== -1) {
         chain = chain.then(function() {
           return currentTrack.applyConstraints({
@@ -524,7 +535,6 @@
         });
       }
 
-      // 2) single-shot refocus, затем обратно continuous
       if (caps.focusMode && caps.focusMode.indexOf('single-shot') !== -1) {
         chain = chain.then(function() {
           return currentTrack.applyConstraints({
@@ -544,7 +554,6 @@
         });
       }
 
-      // 3) focusDistance
       if (caps.focusDistance &&
           caps.focusDistance.min != null &&
           caps.focusDistance.max != null &&
@@ -554,18 +563,18 @@
             advanced: [{ focusDistance: caps.focusDistance.min }]
           });
         }).then(function() {
-          log('→ focusDistance: ' + caps.focusDistance.min + ' (near for QR)');
+          log('→ focusDistance: ' + caps.focusDistance.min);
         });
       }
 
       return chain.then(function() {
         log('applyConstraints OK');
       }).catch(function(e) {
-        log('tune/refocus ошибка: ' + e.message);
+        log('tune ошибка: ' + e.message);
       });
 
     } catch (e) {
-      log('tune/refocus ошибка: ' + e.message);
+      log('tune ошибка: ' + e.message);
       return Promise.resolve();
     }
   }
@@ -668,7 +677,7 @@
   }
 
   // =============================================
-  // QR найден
+  // QR найден — отправка в Telegram
   // =============================================
   function onQRDetected(qrData) {
     scanActive = false;
@@ -686,19 +695,25 @@
 
     log('Payload: ' + payload);
 
-    if (isTelegram) {
+    if (isTelegram && tg) {
       try {
+        log('Вызываю tg.sendData()...');
+
+        // ✅ sendData() отправляет данные боту и АВТОМАТИЧЕСКИ закрывает WebApp.
+        // После вызова sendData() никакой код уже не выполнится надёжно,
+        // поэтому НЕ нужен tg.close().
         tg.sendData(payload);
-        log('sendData() OK');
-        setTimeout(function() {
-          try { tg.close(); } catch (e) { /* ignore */ }
-        }, 2000);
+
+        log('sendData() вызван');
+        // WebApp закроется автоматически
       } catch (e) {
-        log('sendData ошибка: ' + e.message);
-        setStatus('Ошибка отправки', 'error');
+        log('sendData ОШИБКА: ' + e.name + ': ' + e.message);
+        setStatus('Ошибка отправки: ' + e.message, 'error');
         resumeScanAfterDelay();
       }
     } else {
+      // Автономный режим (не в Telegram) — просто показываем результат
+      log('Не в Telegram, показываю результат');
       setStatus('QR: ' + qrData, 'success');
       resumeScanAfterDelay();
     }
@@ -746,7 +761,7 @@
 
   closeBtn.addEventListener('click', function() {
     stopCamera();
-    if (isTelegram) {
+    if (isTelegram && tg) {
       try { tg.close(); } catch (e) { /* ignore */ }
     }
     setStatus('Сканер закрыт');
@@ -758,10 +773,10 @@
   loadJsQR()
     .then(function() {
       jsQRReady = true;
-      log('jsQR готов');
+      log('jsQR готов ✅');
 
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        log('getUserMedia OK');
+        log('getUserMedia доступен');
         startCamera();
       } else {
         setStatus('Камера не поддерживается', 'error');
