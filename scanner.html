@@ -17,7 +17,13 @@
       align-items: center;
     }
 
-    .header { padding: 16px; text-align: center; width: 100%; background: #16213e; }
+    .header {
+      padding: 16px;
+      text-align: center;
+      width: 100%;
+      background: #16213e;
+    }
+
     .header h1 { font-size: 18px; font-weight: 600; }
     .header p { font-size: 13px; color: #a0a0b0; margin-top: 4px; }
 
@@ -81,8 +87,8 @@
     }
 
     @keyframes scanAnimation {
-      0% { top: 10%; }
-      50% { top: 90%; }
+      0%   { top: 10%; }
+      50%  { top: 90%; }
       100% { top: 10%; }
     }
 
@@ -97,11 +103,18 @@
       text-align: center;
       width: 100%;
     }
+
     .status.success { background: #1b5e20; }
-    .status.error { background: #b71c1c; }
+    .status.error   { background: #b71c1c; }
     .status.warning { background: #e65100; }
 
-    .btn-row { display: flex; gap: 8px; margin-top: 12px; width: 100%; flex-wrap: wrap; }
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      width: 100%;
+      flex-wrap: wrap;
+    }
 
     .btn {
       flex: 1 1 calc(50% - 8px);
@@ -171,62 +184,52 @@
   <div class="debug" id="debug">Лог: инициализация...</div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-
 <script>
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const statusEl = document.getElementById('status');
-  const debugEl = document.getElementById('debug');
-  const switchBtn = document.getElementById('switchBtn');
-  const lensBtn = document.getElementById('lensBtn');
-  const flashBtn = document.getElementById('flashBtn');
-  const closeBtn = document.getElementById('closeBtn');
+  // =============================================
+  // Глобальные элементы
+  // =============================================
+  var video     = document.getElementById('video');
+  var canvas    = document.getElementById('canvas');
+  var ctx       = canvas.getContext('2d', { willReadFrequently: true });
+  var statusEl  = document.getElementById('status');
+  var debugEl   = document.getElementById('debug');
+  var switchBtn = document.getElementById('switchBtn');
+  var lensBtn   = document.getElementById('lensBtn');
+  var flashBtn  = document.getElementById('flashBtn');
+  var closeBtn  = document.getElementById('closeBtn');
 
-  let currentStream = null;
-  let currentTrack = null;
+  var currentStream = null;
+  var currentTrack  = null;
 
-  let useFrontCamera = false;
-  let flashOn = false;
-  let scanActive = true;
-  let animFrameId = null;
+  var useFrontCamera = false;
+  var flashOn        = false;
+  var scanActive     = true;
+  var animFrameId    = null;
+  var jsQRReady      = false;
 
-  let debugLines = [];
+  var debugLines = [];
 
-  const SCAN_CENTER_FRACTION = 0.6;
+  var SCAN_CENTER_FRACTION = 0.6;
 
-  // Списки камер
-  let backCams = [];   // [{deviceId,label}]
-  let frontCams = [];  // [{deviceId,label}]
-  let backIndex = 0;
-  let frontIndex = 0;
+  var backCams   = [];
+  var frontCams  = [];
+  var backIndex  = 0;
+  var frontIndex = 0;
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const eventId = urlParams.get('event_id') || '0';
+  var urlParams = new URLSearchParams(window.location.search);
+  var eventId   = urlParams.get('event_id') || '0';
 
-  let tg = null;
-  let isTelegram = false;
-  try {
-    if (window.Telegram && window.Telegram.WebApp) {
-      tg = window.Telegram.WebApp;
-      tg.expand(); tg.ready();
-      isTelegram = true;
-      log('Telegram WebApp обнаружен');
-    } else {
-      log('Автономный режим');
-    }
-  } catch (e) {
-    log('TG ошибка: ' + e.message);
-  }
+  var tg         = null;
+  var isTelegram = false;
 
-  log('event_id = ' + eventId);
-
+  // =============================================
+  // Утилиты
+  // =============================================
   function log(msg) {
-    const time = new Date().toLocaleTimeString();
-    const line = time + ' | ' + msg;
+    var time = new Date().toLocaleTimeString();
+    var line = time + ' | ' + msg;
     debugLines.push(line);
-    if (debugLines.length > 18) debugLines.shift();
+    if (debugLines.length > 18) { debugLines.shift(); }
     debugEl.textContent = debugLines.join('\n');
     debugEl.scrollTop = debugEl.scrollHeight;
     console.log('[QR]', msg);
@@ -238,277 +241,416 @@
   }
 
   function waitLoadedMetadata(v) {
-    return new Promise((resolve, reject) => {
-      const ok = () => { cleanup(); resolve(); };
-      const err = () => { cleanup(); reject(new Error('video metadata error')); };
-      const cleanup = () => {
+    return new Promise(function(resolve, reject) {
+      function ok()  { cleanup(); resolve(); }
+      function err() { cleanup(); reject(new Error('video metadata error')); }
+      function cleanup() {
         v.removeEventListener('loadedmetadata', ok);
         v.removeEventListener('error', err);
-      };
-      v.addEventListener('loadedmetadata', ok, { once: true });
-      v.addEventListener('error', err, { once: true });
+      }
+      v.addEventListener('loadedmetadata', ok,  { once: true });
+      v.addEventListener('error',          err, { once: true });
     });
   }
 
-  // ---- Камера: построить список устройств после получения разрешения
-  async function refreshDeviceLists() {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
-
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const vids = devices.filter(d => d.kind === 'videoinput');
-
-    // Эвристика по label (работает только после выдачи разрешения)
-    const isBack = (label) => /back|rear|environment/i.test(label);
-    const isFront = (label) => /front|user|selfie/i.test(label);
-    const isBadAux = (label) => /macro|depth|tof|aux/i.test(label);
-
-    const scored = vids.map(d => {
-      const label = (d.label || '').trim();
-      let scoreBack = 0, scoreFront = 0, penalty = 0;
-
-      if (isBack(label)) scoreBack += 10;
-      if (isFront(label)) scoreFront += 10;
-
-      // часто “macro/depth” даёт мыло/не тот фокус
-      if (isBadAux(label)) penalty += 8;
-
-      // “wide/ultra wide” — может быть ок, но для QR иногда хуже, поэтому небольшой штраф
-      if (/ultra|wide/i.test(label)) penalty += 2;
-
-      return { deviceId: d.deviceId, label, scoreBack, scoreFront, penalty };
-    });
-
-    backCams = scored
-      .sort((a,b) => (b.scoreBack - b.penalty) - (a.scoreBack - a.penalty))
-      .filter(x => x.scoreBack > 0 || (!x.label && x.deviceId)); // если label пустой, просто оставим кандидатом
-
-    frontCams = scored
-      .sort((a,b) => (b.scoreFront - b.penalty) - (a.scoreFront - a.penalty))
-      .filter(x => x.scoreFront > 0 || (!x.label && x.deviceId));
-
-    log('Найдено камер: всего=' + vids.length +
-        ' back=' + backCams.length + ' front=' + frontCams.length);
-
-    // Лог списка (укороченно)
-    backCams.slice(0, 5).forEach((c, i) => log('back['+i+']: ' + (c.label || '(no label)')));
-    frontCams.slice(0, 3).forEach((c, i) => log('front['+i+']: ' + (c.label || '(no label)')));
+  // =============================================
+  // Telegram WebApp
+  // =============================================
+  try {
+    if (window.Telegram && window.Telegram.WebApp) {
+      tg = window.Telegram.WebApp;
+      tg.expand();
+      tg.ready();
+      isTelegram = true;
+      log('Telegram WebApp обнаружен');
+    } else {
+      log('Автономный режим');
+    }
+  } catch (e) {
+    log('TG ошибка: ' + e.message);
   }
 
-  function buildConstraints({ useDeviceId, deviceId, facingMode }) {
-    const baseVideo = {
-      width: { ideal: 1920, min: 640 },
-      height: { ideal: 1080, min: 480 },
-      frameRate: { ideal: 30, min: 15 },
-      aspectRatio: { ideal: 16 / 9 },
-      // иногда помогает избежать странного ресайза:
-      resizeMode: { ideal: 'none' }
-    };
+  log('event_id = ' + eventId);
 
-    if (useDeviceId && deviceId) {
-      return { video: { ...baseVideo, deviceId: { exact: deviceId } }, audio: false };
+  // =============================================
+  // Загрузка jsQR (локально, с CDN-фолбэком)
+  // =============================================
+  function loadJsQR() {
+    return new Promise(function(resolve, reject) {
+      // Если уже загружен (например, был inline)
+      if (typeof jsQR === 'function') {
+        log('jsQR уже доступен');
+        resolve();
+        return;
+      }
+
+      var sources = [
+        '/static/js/jsQR.min.js',
+        'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js',
+        'https://unpkg.com/jsqr@1.4.0/dist/jsQR.min.js'
+      ];
+
+      var index = 0;
+
+      function tryNext() {
+        if (index >= sources.length) {
+          reject(new Error('Не удалось загрузить jsQR ни из одного источника'));
+          return;
+        }
+
+        var src = sources[index];
+        index++;
+        log('Загрузка jsQR: ' + src);
+
+        var script  = document.createElement('script');
+        script.src  = src;
+        script.onload = function() {
+          if (typeof jsQR === 'function') {
+            log('jsQR загружен OK: ' + src);
+            resolve();
+          } else {
+            log('jsQR загружен, но функция не найдена: ' + src);
+            tryNext();
+          }
+        };
+        script.onerror = function() {
+          log('jsQR не загружен: ' + src);
+          tryNext();
+        };
+        document.head.appendChild(script);
+      }
+
+      tryNext();
+    });
+  }
+
+  // =============================================
+  // Камеры: построить список устройств
+  // =============================================
+  function refreshDeviceLists() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      return Promise.resolve();
     }
 
-    // fallback на facingMode
-    return { video: { ...baseVideo, facingMode: { ideal: facingMode } }, audio: false };
+    return navigator.mediaDevices.enumerateDevices().then(function(devices) {
+      var vids = devices.filter(function(d) { return d.kind === 'videoinput'; });
+
+      var isBack    = function(label) { return /back|rear|environment/i.test(label); };
+      var isFront   = function(label) { return /front|user|selfie/i.test(label); };
+      var isBadAux  = function(label) { return /macro|depth|tof|aux/i.test(label); };
+
+      var scored = vids.map(function(d) {
+        var label = (d.label || '').trim();
+        var scoreBack = 0;
+        var scoreFront = 0;
+        var penalty = 0;
+
+        if (isBack(label))   { scoreBack  += 10; }
+        if (isFront(label))  { scoreFront += 10; }
+        if (isBadAux(label)) { penalty    += 8;  }
+        if (/ultra|wide/i.test(label)) { penalty += 2; }
+
+        return {
+          deviceId:   d.deviceId,
+          label:      label,
+          scoreBack:  scoreBack,
+          scoreFront: scoreFront,
+          penalty:    penalty
+        };
+      });
+
+      backCams = scored
+        .slice()
+        .sort(function(a, b) { return (b.scoreBack - b.penalty) - (a.scoreBack - a.penalty); })
+        .filter(function(x) { return x.scoreBack > 0 || (!x.label && x.deviceId); });
+
+      frontCams = scored
+        .slice()
+        .sort(function(a, b) { return (b.scoreFront - b.penalty) - (a.scoreFront - a.penalty); })
+        .filter(function(x) { return x.scoreFront > 0 || (!x.label && x.deviceId); });
+
+      log('Найдено камер: всего=' + vids.length +
+          ' back=' + backCams.length +
+          ' front=' + frontCams.length);
+
+      backCams.slice(0, 5).forEach(function(c, i) {
+        log('back[' + i + ']: ' + (c.label || '(no label)'));
+      });
+      frontCams.slice(0, 3).forEach(function(c, i) {
+        log('front[' + i + ']: ' + (c.label || '(no label)'));
+      });
+    });
   }
 
-  async function startCamera() {
+  // =============================================
+  // Constraints
+  // =============================================
+  function buildConstraints(opts) {
+    var baseVideo = {
+      width:       { ideal: 1920, min: 640 },
+      height:      { ideal: 1080, min: 480 },
+      frameRate:   { ideal: 30,   min: 15  },
+      aspectRatio: { ideal: 16 / 9 },
+      resizeMode:  { ideal: 'none' }
+    };
+
+    if (opts.useDeviceId && opts.deviceId) {
+      baseVideo.deviceId = { exact: opts.deviceId };
+      return { video: baseVideo, audio: false };
+    }
+
+    baseVideo.facingMode = { ideal: opts.facingMode };
+    return { video: baseVideo, audio: false };
+  }
+
+  // =============================================
+  // Запуск камеры
+  // =============================================
+  function startCamera() {
     stopCamera();
 
-    const facingMode = useFrontCamera ? 'user' : 'environment';
+    var facingMode = useFrontCamera ? 'user' : 'environment';
     setStatus('Запуск камеры...');
     log('Запуск: ' + facingMode);
 
-    // 1) Сначала пробуем открыть по facingMode (это даёт разрешение => появляются label)
-    let stream = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(buildConstraints({
-        useDeviceId: false,
-        facingMode
-      }));
+    var stream = null;
+
+    navigator.mediaDevices.getUserMedia(
+      buildConstraints({ useDeviceId: false, facingMode: facingMode })
+    )
+    .then(function(s) {
+      stream = s;
       log('Камера OK (первичный старт по facingMode)');
-    } catch (e) {
-      log('Старт по facingMode fail: ' + e.name + ' / ' + e.message);
-    }
 
-    if (!stream) {
-      setStatus('Нет доступа к камере', 'error');
-      return;
-    }
+      currentStream = stream;
+      currentTrack  = stream.getVideoTracks()[0];
+      video.srcObject = stream;
 
-    // Подцепили трек
-    currentStream = stream;
-    currentTrack = stream.getVideoTracks()[0];
-    video.srcObject = stream;
+      return refreshDeviceLists().catch(function(e) {
+        log('enumerateDevices ошибка: ' + e.message);
+      });
+    })
+    .then(function() {
+      // Выбираем конкретную камеру по deviceId
+      var chosen = null;
 
-    // Важно: обновляем списки девайсов после разрешения
-    try { await refreshDeviceLists(); } catch (e) { log('enumerateDevices ошибка: ' + e.message); }
-
-    // 2) Если это задняя камера — выбираем “лучшую” по deviceId и перезапускаем поток
-    if (!useFrontCamera) {
-      const chosen = backCams[backIndex]?.deviceId;
-      if (chosen) {
-        log('Пробую заднюю по deviceId (index=' + backIndex + ')');
-        // перезапуск с конкретным deviceId
-        try {
-          stream.getTracks().forEach(t => t.stop());
-          stream = await navigator.mediaDevices.getUserMedia(buildConstraints({
-            useDeviceId: true,
-            deviceId: chosen,
-            facingMode
-          }));
-          currentStream = stream;
-          currentTrack = stream.getVideoTracks()[0];
-          video.srcObject = stream;
-          log('Открыта задняя камера по deviceId ✅');
-        } catch (e) {
-          log('deviceId старт fail: ' + e.name + ' / ' + e.message);
-          // если не получилось — остаёмся на первом потоке
+      if (!useFrontCamera) {
+        chosen = backCams[backIndex] ? backCams[backIndex].deviceId : null;
+        if (chosen) {
+          log('Пробую заднюю по deviceId (index=' + backIndex + ')');
         }
       } else {
-        log('back deviceId не найден — остаюсь на facingMode');
-      }
-    } else {
-      const chosen = frontCams[frontIndex]?.deviceId;
-      if (chosen) {
-        log('Пробую фронт по deviceId (index=' + frontIndex + ')');
-        try {
-          stream.getTracks().forEach(t => t.stop());
-          stream = await navigator.mediaDevices.getUserMedia(buildConstraints({
-            useDeviceId: true,
-            deviceId: chosen,
-            facingMode
-          }));
-          currentStream = stream;
-          currentTrack = stream.getVideoTracks()[0];
-          video.srcObject = stream;
-          log('Открыта фронт камера по deviceId ✅');
-        } catch (e) {
-          log('front deviceId старт fail: ' + e.name + ' / ' + e.message);
+        chosen = frontCams[frontIndex] ? frontCams[frontIndex].deviceId : null;
+        if (chosen) {
+          log('Пробую фронт по deviceId (index=' + frontIndex + ')');
         }
       }
-    }
 
-    // Лог настроек
-    try {
-      const s = currentTrack.getSettings();
-      log('Track settings: ' + (s.width||'?') + 'x' + (s.height||'?') +
-          ' facing=' + (s.facingMode||'?') + ' deviceId=' + (s.deviceId ? 'yes' : 'no'));
-    } catch (e) {}
+      if (!chosen) {
+        log('deviceId не найден — остаюсь на facingMode');
+        return Promise.resolve();
+      }
 
-    // Дождаться видео и запустить
-    try { await waitLoadedMetadata(video); } catch (e) { setStatus('Ошибка видео', 'error'); return; }
+      // Останавливаем первый поток и открываем по deviceId
+      if (currentStream) {
+        currentStream.getTracks().forEach(function(t) { t.stop(); });
+      }
 
-    // Настроить фокус и попытаться форснуть автофокус
-    await tuneTrackAndRefocus();
+      return navigator.mediaDevices.getUserMedia(
+        buildConstraints({ useDeviceId: true, deviceId: chosen, facingMode: facingMode })
+      )
+      .then(function(s2) {
+        currentStream   = s2;
+        currentTrack    = s2.getVideoTracks()[0];
+        video.srcObject = s2;
+        log('Открыта камера по deviceId ✅');
+      })
+      .catch(function(e) {
+        log('deviceId старт fail: ' + e.name + ' / ' + e.message);
+      });
+    })
+    .then(function() {
+      // Лог настроек трека
+      try {
+        var s = currentTrack.getSettings();
+        log('Track: ' + (s.width || '?') + 'x' + (s.height || '?') +
+            ' facing=' + (s.facingMode || '?'));
+      } catch (e) { /* ignore */ }
 
-    flashOn = false;
-    flashBtn.classList.remove('on');
-
-    try { await video.play(); } catch (e) { setStatus('Ошибка воспроизведения', 'error'); return; }
-
-    log('Видео: ' + video.videoWidth + 'x' + video.videoHeight);
-    setStatus('Камера активна. Ищу QR-код...');
-    scanActive = true;
-    requestScan();
+      return waitLoadedMetadata(video);
+    })
+    .then(function() {
+      return tuneTrackAndRefocus();
+    })
+    .then(function() {
+      flashOn = false;
+      flashBtn.classList.remove('on');
+      return video.play();
+    })
+    .then(function() {
+      log('Видео: ' + video.videoWidth + 'x' + video.videoHeight);
+      setStatus('Камера активна. Ищу QR-код...');
+      scanActive = true;
+      requestScan();
+    })
+    .catch(function(e) {
+      log('startCamera ошибка: ' + e.name + ' / ' + e.message);
+      setStatus('Нет доступа к камере', 'error');
+    });
   }
 
-  async function tuneTrackAndRefocus() {
-    if (!currentTrack?.getCapabilities) return;
+  // =============================================
+  // Настройка фокуса
+  // =============================================
+  function tuneTrackAndRefocus() {
+    if (!currentTrack || !currentTrack.getCapabilities) {
+      return Promise.resolve();
+    }
 
     try {
-      const caps = currentTrack.getCapabilities();
+      var caps = currentTrack.getCapabilities();
       log('Caps keys: ' + Object.keys(caps).join(', '));
 
-      // 1) Ставим continuous если есть
-      if (caps.focusMode?.includes('continuous')) {
-        await currentTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-        log('→ focusMode: continuous');
+      var chain = Promise.resolve();
+
+      // 1) continuous focus
+      if (caps.focusMode && caps.focusMode.indexOf('continuous') !== -1) {
+        chain = chain.then(function() {
+          return currentTrack.applyConstraints({
+            advanced: [{ focusMode: 'continuous' }]
+          });
+        }).then(function() {
+          log('→ focusMode: continuous');
+        });
       }
 
-      // 2) Форс-рефокус: single-shot, затем обратно continuous
-      if (caps.focusMode?.includes('single-shot')) {
-        await currentTrack.applyConstraints({ advanced: [{ focusMode: 'single-shot' }] });
-        log('→ focusMode: single-shot (refocus)');
-        // небольшой таймаут, чтобы камера успела сфокусироваться
-        await new Promise(r => setTimeout(r, 250));
-        if (caps.focusMode?.includes('continuous')) {
-          await currentTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-          log('→ focusMode: continuous (after refocus)');
-        }
+      // 2) single-shot refocus, затем обратно continuous
+      if (caps.focusMode && caps.focusMode.indexOf('single-shot') !== -1) {
+        chain = chain.then(function() {
+          return currentTrack.applyConstraints({
+            advanced: [{ focusMode: 'single-shot' }]
+          });
+        }).then(function() {
+          log('→ focusMode: single-shot (refocus)');
+          return new Promise(function(r) { setTimeout(r, 250); });
+        }).then(function() {
+          if (caps.focusMode && caps.focusMode.indexOf('continuous') !== -1) {
+            return currentTrack.applyConstraints({
+              advanced: [{ focusMode: 'continuous' }]
+            }).then(function() {
+              log('→ focusMode: continuous (after refocus)');
+            });
+          }
+        });
       }
 
-      // 3) Если всё равно мыло — иногда помогает выставить focusDistance ближе (для QR)
-      // Важно: на разных устройствах “min/max” могут трактоваться по-разному,
-      // поэтому делаем мягко: только если есть диапазон и min != max.
-      if (caps.focusDistance && caps.focusDistance.min != null && caps.focusDistance.max != null && caps.focusDistance.min !== caps.focusDistance.max) {
-        // Для QR обычно нужно ближе: берём min (как правило — ближний фокус).
-        // Если у тебя наоборот станет хуже — скажи, поменяем на max/середину.
-        await currentTrack.applyConstraints({ advanced: [{ focusDistance: caps.focusDistance.min }] });
-        log('→ focusDistance: ' + caps.focusDistance.min + ' (near for QR)');
+      // 3) focusDistance
+      if (caps.focusDistance &&
+          caps.focusDistance.min != null &&
+          caps.focusDistance.max != null &&
+          caps.focusDistance.min !== caps.focusDistance.max) {
+        chain = chain.then(function() {
+          return currentTrack.applyConstraints({
+            advanced: [{ focusDistance: caps.focusDistance.min }]
+          });
+        }).then(function() {
+          log('→ focusDistance: ' + caps.focusDistance.min + ' (near for QR)');
+        });
       }
 
-      log('applyConstraints OK');
+      return chain.then(function() {
+        log('applyConstraints OK');
+      }).catch(function(e) {
+        log('tune/refocus ошибка: ' + e.message);
+      });
+
     } catch (e) {
       log('tune/refocus ошибка: ' + e.message);
+      return Promise.resolve();
     }
   }
 
+  // =============================================
+  // Остановка камеры
+  // =============================================
   function stopCamera() {
     scanActive = false;
-    if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+
+    if (animFrameId) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
 
     if (currentStream) {
-      currentStream.getTracks().forEach(t => t.stop());
+      currentStream.getTracks().forEach(function(t) { t.stop(); });
       currentStream = null;
-      currentTrack = null;
+      currentTrack  = null;
     }
+
     video.srcObject = null;
   }
 
-  // ====== ВСПЫШКА ======
-  async function toggleFlash() {
-    if (!currentTrack) return;
+  // =============================================
+  // Вспышка
+  // =============================================
+  function toggleFlash() {
+    if (!currentTrack) { return; }
+
     try {
-      const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
+      var caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
       if (!caps.torch) {
         setStatus('Вспышка недоступна', 'warning');
-        setTimeout(() => setStatus('Камера активна. Ищу QR-код...'), 2000);
+        setTimeout(function() {
+          setStatus('Камера активна. Ищу QR-код...');
+        }, 2000);
         return;
       }
+
       flashOn = !flashOn;
-      await currentTrack.applyConstraints({ advanced: [{ torch: flashOn }] });
-      flashBtn.classList.toggle('on', flashOn);
-      log('Вспышка: ' + (flashOn ? 'ВКЛ' : 'ВЫКЛ'));
+      currentTrack.applyConstraints({ advanced: [{ torch: flashOn }] })
+        .then(function() {
+          flashBtn.classList.toggle('on', flashOn);
+          log('Вспышка: ' + (flashOn ? 'ВКЛ' : 'ВЫКЛ'));
+        })
+        .catch(function(e) {
+          log('Вспышка ошибка: ' + e.message);
+        });
     } catch (e) {
       log('Вспышка ошибка: ' + e.message);
     }
   }
 
-  // ====== СКАНИРОВАНИЕ ======
+  // =============================================
+  // Сканирование
+  // =============================================
   function requestScan() {
-    if (!scanActive) return;
+    if (!scanActive) { return; }
     animFrameId = requestAnimationFrame(scanFrame);
   }
 
   function scanFrame() {
-    if (!scanActive) return;
-    if (video.readyState !== video.HAVE_ENOUGH_DATA) { requestScan(); return; }
+    if (!scanActive) { return; }
+    if (!jsQRReady)  { requestScan(); return; }
 
-    const w = video.videoWidth;
-    const h = video.videoHeight;
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+      requestScan();
+      return;
+    }
+
+    var w = video.videoWidth;
+    var h = video.videoHeight;
     if (!w || !h) { requestScan(); return; }
 
-    const cropW = Math.floor(w * SCAN_CENTER_FRACTION);
-    const cropH = Math.floor(h * SCAN_CENTER_FRACTION);
-    const cropX = Math.floor((w - cropW) / 2);
-    const cropY = Math.floor((h - cropH) / 2);
+    var cropW = Math.floor(w * SCAN_CENTER_FRACTION);
+    var cropH = Math.floor(h * SCAN_CENTER_FRACTION);
+    var cropX = Math.floor((w - cropW) / 2);
+    var cropY = Math.floor((h - cropH) / 2);
 
-    canvas.width = cropW;
+    canvas.width  = cropW;
     canvas.height = cropH;
     ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-    let imageData;
+    var imageData;
     try {
       imageData = ctx.getImageData(0, 0, cropW, cropH);
     } catch (e) {
@@ -516,27 +658,41 @@
       return;
     }
 
-    const code = jsQR(imageData.data, cropW, cropH, { inversionAttempts: 'attemptBoth' });
-    if (code && code.data) { onQRDetected(code.data); return; }
+    var code = jsQR(imageData.data, cropW, cropH, { inversionAttempts: 'attemptBoth' });
+    if (code && code.data) {
+      onQRDetected(code.data);
+      return;
+    }
 
     requestScan();
   }
 
+  // =============================================
+  // QR найден
+  // =============================================
   function onQRDetected(qrData) {
     scanActive = false;
     log('QR: ' + qrData);
     setStatus('✅ QR-код считан!', 'success');
 
-    try { if (navigator.vibrate) navigator.vibrate(200); } catch (e) {}
+    try {
+      if (navigator.vibrate) { navigator.vibrate(200); }
+    } catch (e) { /* ignore */ }
 
-    const payload = JSON.stringify({ event_id: eventId, qr_Data: qrData });
+    var payload = JSON.stringify({
+      event_id: eventId,
+      qr_Data:  qrData
+    });
+
     log('Payload: ' + payload);
 
     if (isTelegram) {
       try {
         tg.sendData(payload);
         log('sendData() OK');
-        setTimeout(() => { try { tg.close(); } catch(e) {} }, 2000);
+        setTimeout(function() {
+          try { tg.close(); } catch (e) { /* ignore */ }
+        }, 2000);
       } catch (e) {
         log('sendData ошибка: ' + e.message);
         setStatus('Ошибка отправки', 'error');
@@ -549,53 +705,76 @@
   }
 
   function resumeScanAfterDelay() {
-    setTimeout(() => {
+    setTimeout(function() {
       scanActive = true;
       requestScan();
       setStatus('Камера активна. Ищу QR-код...');
     }, 3000);
   }
 
-  // ====== КНОПКИ ======
-  switchBtn.addEventListener('click', () => {
+  // =============================================
+  // Кнопки
+  // =============================================
+  switchBtn.addEventListener('click', function() {
     useFrontCamera = !useFrontCamera;
     log('Переключение: ' + (useFrontCamera ? 'фронт' : 'задняя'));
     startCamera();
   });
 
-  lensBtn.addEventListener('click', async () => {
-    // Переключаем “линзу” только внутри текущего режима (front/back)
+  lensBtn.addEventListener('click', function() {
     if (useFrontCamera) {
-      if (frontCams.length <= 1) { setStatus('Нет других фронт камер', 'warning'); return; }
+      if (frontCams.length <= 1) {
+        setStatus('Нет других фронт камер', 'warning');
+        return;
+      }
       frontIndex = (frontIndex + 1) % frontCams.length;
       log('Линза фронт: index=' + frontIndex);
     } else {
-      if (backCams.length <= 1) { setStatus('Нет других задних камер', 'warning'); return; }
+      if (backCams.length <= 1) {
+        setStatus('Нет других задних камер', 'warning');
+        return;
+      }
       backIndex = (backIndex + 1) % backCams.length;
       log('Линза задняя: index=' + backIndex);
     }
     startCamera();
   });
 
-  flashBtn.addEventListener('click', () => toggleFlash());
+  flashBtn.addEventListener('click', function() {
+    toggleFlash();
+  });
 
-  closeBtn.addEventListener('click', () => {
+  closeBtn.addEventListener('click', function() {
     stopCamera();
-    if (isTelegram) { try { tg.close(); } catch(e) {} }
+    if (isTelegram) {
+      try { tg.close(); } catch (e) { /* ignore */ }
+    }
     setStatus('Сканер закрыт');
   });
 
-  // ====== ЗАПУСК ======
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    log('getUserMedia OK');
-    startCamera();
-  } else {
-    setStatus('Камера не поддерживается', 'error');
-    log('getUserMedia НЕ поддерживается');
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-      setStatus('Нужен HTTPS! Протокол: ' + location.protocol, 'error');
-    }
-  }
+  // =============================================
+  // ЗАПУСК
+  // =============================================
+  loadJsQR()
+    .then(function() {
+      jsQRReady = true;
+      log('jsQR готов');
+
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        log('getUserMedia OK');
+        startCamera();
+      } else {
+        setStatus('Камера не поддерживается', 'error');
+        log('getUserMedia НЕ поддерживается');
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+          setStatus('Нужен HTTPS! Протокол: ' + location.protocol, 'error');
+        }
+      }
+    })
+    .catch(function(e) {
+      log('КРИТИЧЕСКАЯ ОШИБКА: ' + e.message);
+      setStatus('Сканер не загружен. Обновите страницу.', 'error');
+    });
 </script>
 
 </body>
