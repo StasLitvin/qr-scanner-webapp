@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>QR Scanner</title>
+
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -24,7 +25,7 @@
     .scanner-container {
       position: relative;
       width: 100%;
-      max-width: 400px;
+      max-width: 420px;
       margin: 12px auto;
       display: flex;
       flex-direction: column;
@@ -45,6 +46,7 @@
       width: 100%;
       display: block;
       object-fit: cover;
+      min-height: 240px;
     }
 
     .scan-region {
@@ -52,8 +54,8 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 200px;
-      height: 200px;
+      width: 210px;
+      height: 210px;
       pointer-events: none;
     }
 
@@ -90,13 +92,14 @@
 
     .status {
       margin-top: 12px;
-      padding: 12px 20px;
+      padding: 12px 14px;
       background: #16213e;
       border-radius: 8px;
       font-size: 14px;
       text-align: center;
       width: 100%;
       line-height: 1.35;
+      white-space: pre-line;
     }
     .status.success { background: #1b5e20; }
     .status.error { background: #b71c1c; }
@@ -106,13 +109,14 @@
 
     .btn {
       flex: 1 1 calc(50% - 8px);
-      padding: 12px 16px;
+      padding: 12px 12px;
       border: none;
       border-radius: 8px;
       font-size: 14px;
       cursor: pointer;
       color: #fff;
       transition: background 0.2s;
+      user-select: none;
     }
 
     .btn-switch { background: #0f3460; }
@@ -126,560 +130,551 @@
     .btn-close:active { background: #d32f2f; }
 
     .debug {
-      margin-top: 8px;
-      padding: 8px 12px;
+      margin-top: 10px;
+      padding: 10px 12px;
       background: #0d0d1a;
       border-radius: 6px;
       font-size: 11px;
-      color: #bdbdd0;
+      color: #c8c8da;
       width: 100%;
-      max-height: 180px;
+      max-height: 200px;
       overflow-y: auto;
-      word-break: break-all;
+      word-break: break-word;
       white-space: pre-wrap;
     }
   </style>
 </head>
+
 <body>
+  <div class="header">
+    <h1>Сканирование QR-кода</h1>
+    <p>Наведите камеру на QR-код участника</p>
+  </div>
 
-<div class="header">
-  <h1>Сканирование QR-кода</h1>
-  <p>Наведите камеру на QR-код участника</p>
-</div>
-
-<div class="scanner-container">
-  <div class="video-wrapper">
-    <video id="video" autoplay playsinline muted></video>
-    <div class="scan-region">
-      <div class="corner tl"></div>
-      <div class="corner tr"></div>
-      <div class="corner bl"></div>
-      <div class="corner br"></div>
-      <div class="scan-line"></div>
+  <div class="scanner-container">
+    <div class="video-wrapper">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="scan-region">
+        <div class="corner tl"></div>
+        <div class="corner tr"></div>
+        <div class="corner bl"></div>
+        <div class="corner br"></div>
+        <div class="scan-line"></div>
+      </div>
     </div>
+
+    <canvas id="canvas"></canvas>
+
+    <div class="status" id="status">Запуск...</div>
+
+    <div class="btn-row">
+      <button class="btn btn-switch" id="switchBtn">📷 Камера</button>
+      <button class="btn btn-lens" id="lensBtn">🔁 Линза</button>
+      <button class="btn btn-flash" id="flashBtn">🔦 Вспышка</button>
+      <button class="btn btn-close" id="closeBtn">✕ Закрыть</button>
+    </div>
+
+    <div class="debug" id="debug">Лог: инициализация...</div>
   </div>
 
-  <canvas id="canvas"></canvas>
+  <!-- jsQR: разместите файл на своём сервере -->
+  <script src="/assets/js/jsQR.min.js"></script>
 
-  <div class="status" id="status">Запуск...</div>
+  <script>
+    // =========================
+    // DOM
+    // =========================
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-  <div class="btn-row">
-    <button class="btn btn-switch" id="switchBtn">📷 Камера</button>
-    <button class="btn btn-lens" id="lensBtn">🔁 Линза</button>
-    <button class="btn btn-flash" id="flashBtn">🔦 Вспышка</button>
-    <button class="btn btn-close" id="closeBtn">✕ Закрыть</button>
-  </div>
+    const statusEl = document.getElementById('status');
+    const debugEl = document.getElementById('debug');
 
-  <div class="debug" id="debug">Лог: инициализация...</div>
-</div>
+    const switchBtn = document.getElementById('switchBtn');
+    const lensBtn = document.getElementById('lensBtn');
+    const flashBtn = document.getElementById('flashBtn');
+    const closeBtn = document.getElementById('closeBtn');
 
-<!-- Библиотека jsQR -->
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    // =========================
+    // Params
+    // =========================
+    const urlParams = new URLSearchParams(window.location.search);
+    const eventId = urlParams.get('event_id') || '0';
 
-<script>
-  // =========================
-  // UI / DOM
-  // =========================
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const statusEl = document.getElementById('status');
-  const debugEl = document.getElementById('debug');
-  const switchBtn = document.getElementById('switchBtn');
-  const lensBtn = document.getElementById('lensBtn');
-  const flashBtn = document.getElementById('flashBtn');
-  const closeBtn = document.getElementById('closeBtn');
+    // =========================
+    // Logging & UI
+    // =========================
+    let debugLines = [];
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      const line = `${time} | ${msg}`;
+      debugLines.push(line);
+      if (debugLines.length > 26) debugLines.shift();
+      debugEl.textContent = debugLines.join('\n');
+      debugEl.scrollTop = debugEl.scrollHeight;
+      console.log('[QR]', msg);
+    }
 
-  // =========================
-  // State
-  // =========================
-  let currentStream = null;
-  let currentTrack = null;
+    function setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = 'status' + (cls ? (' ' + cls) : '');
+    }
 
-  let useFrontCamera = false;
-  let flashOn = false;
-  let scanActive = true;
-  let animFrameId = null;
+    function waitLoadedMetadata(v) {
+      return new Promise((resolve, reject) => {
+        const ok = () => { cleanup(); resolve(); };
+        const err = () => { cleanup(); reject(new Error('video metadata error')); };
+        const cleanup = () => {
+          v.removeEventListener('loadedmetadata', ok);
+          v.removeEventListener('error', err);
+        };
+        v.addEventListener('loadedmetadata', ok, { once: true });
+        v.addEventListener('error', err, { once: true });
+      });
+    }
 
-  let debugLines = [];
-  const SCAN_CENTER_FRACTION = 0.6;
+    // =========================
+    // Telegram WebApp init (robust)
+    // =========================
+    let tg = null;
+    let isTelegram = false;
 
-  // Dedupe QR
-  let lastQR = null;
-  let lastQRTime = 0;
+    async function initTelegramWebApp() {
+      // Ждём до 2 секунд (иногда API появляется не мгновенно)
+      for (let i = 0; i < 20; i++) {
+        const hasTG = !!(window.Telegram && window.Telegram.WebApp);
+        if (hasTG) {
+          tg = window.Telegram.WebApp;
+          isTelegram = true;
 
-  // Camera lists
-  let backCams = [];   // [{deviceId,label,scoreBack,scoreFront,penalty}]
-  let frontCams = [];  // same
-  let backIndex = 0;
-  let frontIndex = 0;
+          try { tg.ready(); } catch (e) { log('tg.ready err: ' + e.message); }
+          try { tg.expand(); } catch (e) { log('tg.expand err: ' + e.message); }
 
-  // URL params
-  const urlParams = new URLSearchParams(window.location.search);
-  const eventId = urlParams.get('event_id') || '0';
-
-  // Telegram WebApp
-  let tg = null;
-  let isTelegram = false;
-
-  // =========================
-  // Helpers
-  // =========================
-  function log(msg) {
-    const time = new Date().toLocaleTimeString();
-    const line = time + ' | ' + msg;
-    debugLines.push(line);
-    if (debugLines.length > 22) debugLines.shift();
-    debugEl.textContent = debugLines.join('\n');
-    debugEl.scrollTop = debugEl.scrollHeight;
-    console.log('[QR]', msg);
-  }
-
-  function setStatus(text, cls) {
-    statusEl.textContent = text;
-    statusEl.className = 'status' + (cls ? ' ' + cls : '');
-  }
-
-  function waitLoadedMetadata(v) {
-    return new Promise((resolve, reject) => {
-      const ok = () => { cleanup(); resolve(); };
-      const err = () => { cleanup(); reject(new Error('video metadata error')); };
-      const cleanup = () => {
-        v.removeEventListener('loadedmetadata', ok);
-        v.removeEventListener('error', err);
-      };
-      v.addEventListener('loadedmetadata', ok, { once: true });
-      v.addEventListener('error', err, { once: true });
-    });
-  }
-
-  // =========================
-  // Telegram init (DIAGNOSTIC)
-  // =========================
-  (function initTelegram() {
-    try {
-      const hasTG = !!(window.Telegram && window.Telegram.WebApp);
-      log('event_id = ' + eventId);
-      log('TG detect: ' + (hasTG ? 'YES' : 'NO'));
-
-      if (!hasTG) {
-        isTelegram = false;
-        log('Автономный режим: страница открыта НЕ как Telegram WebApp');
-        // Важно: в таком режиме sendData не сработает никогда.
-        return;
+          log('Telegram WebApp обнаружен ✅');
+          log('TG version=' + (tg.version || 'n/a') + ', platform=' + (tg.platform || 'n/a'));
+          log('TG initData len=' + ((tg.initData && tg.initData.length) ? tg.initData.length : 0));
+          try {
+            const u = tg.initDataUnsafe || {};
+            log('TG user=' + (u.user ? String(u.user.id) : 'none'));
+          } catch (e) {
+            log('TG initDataUnsafe err: ' + e.message);
+          }
+          return;
+        }
+        await new Promise(r => setTimeout(r, 100));
       }
 
-      tg = window.Telegram.WebApp;
-      isTelegram = true;
-
-      try { tg.ready(); } catch(e) { log('tg.ready() err: ' + e.message); }
-      try { tg.expand(); } catch(e) { log('tg.expand() err: ' + e.message); }
-
-      log('TG version=' + (tg.version || 'n/a') + ', platform=' + (tg.platform || 'n/a'));
-      log('TG initData len=' + ((tg.initData && tg.initData.length) ? tg.initData.length : 0));
-
-      try {
-        const u = tg.initDataUnsafe || {};
-        log('TG initDataUnsafe user=' + (u.user ? (u.user.id + '') : 'none'));
-      } catch (e) {
-        log('TG initDataUnsafe err: ' + e.message);
-      }
-
-      log('Telegram WebApp обнаружен ✅');
-    } catch (e) {
       isTelegram = false;
-      log('TG init ошибка: ' + e.message);
-    }
-  })();
-
-  // =========================
-  // Devices list
-  // =========================
-  async function refreshDeviceLists() {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
-
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const vids = devices.filter(d => d.kind === 'videoinput');
-
-    const isBack = (label) => /back|rear|environment/i.test(label);
-    const isFront = (label) => /front|user|selfie/i.test(label);
-    const isBadAux = (label) => /macro|depth|tof|aux/i.test(label);
-
-    const scored = vids.map(d => {
-      const label = (d.label || '').trim();
-      let scoreBack = 0, scoreFront = 0, penalty = 0;
-
-      if (isBack(label)) scoreBack += 10;
-      if (isFront(label)) scoreFront += 10;
-
-      if (isBadAux(label)) penalty += 8;
-      if (/ultra|wide/i.test(label)) penalty += 2;
-
-      return { deviceId: d.deviceId, label, scoreBack, scoreFront, penalty };
-    });
-
-    backCams = scored
-      .sort((a,b) => (b.scoreBack - b.penalty) - (a.scoreBack - a.penalty))
-      .filter(x => x.scoreBack > 0 || (!x.label && x.deviceId));
-
-    frontCams = scored
-      .sort((a,b) => (b.scoreFront - b.penalty) - (a.scoreFront - a.penalty))
-      .filter(x => x.scoreFront > 0 || (!x.label && x.deviceId));
-
-    log('Найдено камер: всего=' + vids.length + ' back=' + backCams.length + ' front=' + frontCams.length);
-
-    backCams.slice(0, 5).forEach((c, i) => log('back['+i+']: ' + (c.label || '(no label)')));
-    frontCams.slice(0, 5).forEach((c, i) => log('front['+i+']: ' + (c.label || '(no label)')));
-  }
-
-  function buildConstraints({ useDeviceId, deviceId, facingMode }) {
-    const baseVideo = {
-      width: { ideal: 1920, min: 640 },
-      height: { ideal: 1080, min: 480 },
-      frameRate: { ideal: 30, min: 15 },
-      aspectRatio: { ideal: 16 / 9 },
-      resizeMode: { ideal: 'none' }
-    };
-
-    if (useDeviceId && deviceId) {
-      return { video: { ...baseVideo, deviceId: { exact: deviceId } }, audio: false };
-    }
-    return { video: { ...baseVideo, facingMode: { ideal: facingMode } }, audio: false };
-  }
-
-  // =========================
-  // Camera start/stop
-  // =========================
-  async function startCamera() {
-    stopCamera();
-
-    const facingMode = useFrontCamera ? 'user' : 'environment';
-    setStatus('Запуск камеры...', 'warning');
-    log('Запуск: ' + facingMode);
-
-    let stream = null;
-
-    // 1) Primary start by facingMode (to get permission -> labels appear)
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(buildConstraints({
-        useDeviceId: false,
-        facingMode
-      }));
-      log('Камера OK (первичный старт по facingMode)');
-    } catch (e) {
-      log('Старт по facingMode fail: ' + e.name + ' / ' + e.message);
+      tg = null;
+      log('TG detect: NO ❌ (страница открыта НЕ как Telegram WebApp)');
+      log('Подсказка: открывайте строго кнопкой web_app в боте (не ссылкой/браузером)');
     }
 
-    if (!stream) {
-      setStatus('Нет доступа к камере', 'error');
-      return;
+    // =========================
+    // Camera state
+    // =========================
+    let currentStream = null;
+    let currentTrack = null;
+
+    let useFrontCamera = false;
+    let flashOn = false;
+
+    let scanActive = true;
+    let animFrameId = null;
+
+    // Для отсечения дублей QR
+    let lastQR = null;
+    let lastQRTime = 0;
+
+    // Сканируем центральную область
+    const SCAN_CENTER_FRACTION = 0.6;
+
+    // Камеры
+    let backCams = [];
+    let frontCams = [];
+    let backIndex = 0;
+    let frontIndex = 0;
+
+    async function refreshDeviceLists() {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const vids = devices.filter(d => d.kind === 'videoinput');
+
+      const isBack = (label) => /back|rear|environment/i.test(label);
+      const isFront = (label) => /front|user|selfie/i.test(label);
+      const isBadAux = (label) => /macro|depth|tof|aux/i.test(label);
+
+      const scored = vids.map(d => {
+        const label = (d.label || '').trim();
+        let scoreBack = 0, scoreFront = 0, penalty = 0;
+
+        if (isBack(label)) scoreBack += 10;
+        if (isFront(label)) scoreFront += 10;
+
+        if (isBadAux(label)) penalty += 8;
+        if (/ultra|wide/i.test(label)) penalty += 2;
+
+        return { deviceId: d.deviceId, label, scoreBack, scoreFront, penalty };
+      });
+
+      backCams = scored
+        .sort((a,b) => (b.scoreBack - b.penalty) - (a.scoreBack - a.penalty))
+        .filter(x => x.scoreBack > 0 || (!x.label && x.deviceId));
+
+      frontCams = scored
+        .sort((a,b) => (b.scoreFront - b.penalty) - (a.scoreFront - a.penalty))
+        .filter(x => x.scoreFront > 0 || (!x.label && x.deviceId));
+
+      log(`Найдено камер: всего=${vids.length} back=${backCams.length} front=${frontCams.length}`);
+      backCams.slice(0, 5).forEach((c, i) => log('back[' + i + ']: ' + (c.label || '(no label)')));
+      frontCams.slice(0, 5).forEach((c, i) => log('front[' + i + ']: ' + (c.label || '(no label)')));
     }
 
-    currentStream = stream;
-    currentTrack = stream.getVideoTracks()[0];
-    video.srcObject = stream;
+    function buildConstraints({ useDeviceId, deviceId, facingMode }) {
+      const baseVideo = {
+        width: { ideal: 1920, min: 640 },
+        height: { ideal: 1080, min: 480 },
+        frameRate: { ideal: 30, min: 15 },
+        aspectRatio: { ideal: 16 / 9 },
+        resizeMode: { ideal: 'none' }
+      };
 
-    // Refresh device list after permission
-    try { await refreshDeviceLists(); } catch (e) { log('enumerateDevices ошибка: ' + e.message); }
+      if (useDeviceId && deviceId) {
+        return { video: { ...baseVideo, deviceId: { exact: deviceId } }, audio: false };
+      }
+      return { video: { ...baseVideo, facingMode: { ideal: facingMode } }, audio: false };
+    }
 
-    // 2) Restart by chosen deviceId (best match)
-    const chosen = useFrontCamera
-      ? (frontCams[frontIndex]?.deviceId)
-      : (backCams[backIndex]?.deviceId);
+    async function tuneTrackAndRefocus() {
+      if (!currentTrack?.getCapabilities || !currentTrack?.applyConstraints) return;
 
-    if (chosen) {
-      log('Пробую ' + (useFrontCamera ? 'фронт' : 'заднюю') + ' по deviceId (index=' + (useFrontCamera ? frontIndex : backIndex) + ')');
       try {
-        stream.getTracks().forEach(t => t.stop());
-        stream = await navigator.mediaDevices.getUserMedia(buildConstraints({
-          useDeviceId: true,
-          deviceId: chosen,
-          facingMode
-        }));
-        currentStream = stream;
-        currentTrack = stream.getVideoTracks()[0];
-        video.srcObject = stream;
-        log('Открыта ' + (useFrontCamera ? 'фронт' : 'задняя') + ' камера по deviceId ✅');
-      } catch (e) {
-        log('deviceId старт fail: ' + e.name + ' / ' + e.message);
-      }
-    } else {
-      log('deviceId не найден — остаюсь на facingMode');
-    }
-
-    // Log settings
-    try {
-      const s = currentTrack.getSettings();
-      log('Track settings: ' + (s.width||'?') + 'x' + (s.height||'?') +
-          ' facing=' + (s.facingMode||'?') + ' deviceId=' + (s.deviceId ? 'yes' : 'no'));
-    } catch (e) {}
-
-    // Wait metadata, then tune focus and start scanning
-    try { await waitLoadedMetadata(video); }
-    catch (e) { setStatus('Ошибка видео', 'error'); return; }
-
-    await tuneTrackAndRefocus();
-
-    flashOn = false;
-    flashBtn.classList.remove('on');
-
-    try { await video.play(); }
-    catch (e) { setStatus('Ошибка воспроизведения', 'error'); return; }
-
-    log('Видео: ' + video.videoWidth + 'x' + video.videoHeight);
-
-    if (!isTelegram) {
-      setStatus('Камера активна. Ищу QR-код...\n(ВНИМАНИЕ: открыт не как WebApp — отправки в бот не будет)', 'warning');
-    } else {
-      setStatus('Камера активна. Ищу QR-код...', 'success');
-    }
-
-    scanActive = true;
-    requestScan();
-  }
-
-  async function tuneTrackAndRefocus() {
-    if (!currentTrack?.getCapabilities || !currentTrack?.applyConstraints) return;
-
-    try {
-      const caps = currentTrack.getCapabilities();
-      log('Caps keys: ' + Object.keys(caps).join(', '));
-
-      // Apply focusMode (each in its own try to avoid aborting everything)
-      if (caps.focusMode?.includes('continuous')) {
-        try {
-          await currentTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-          log('→ focusMode: continuous');
-        } catch (e) {
-          log('focusMode continuous fail: ' + e.message);
-        }
-      }
-
-      if (caps.focusMode?.includes('single-shot')) {
-        try {
-          await currentTrack.applyConstraints({ advanced: [{ focusMode: 'single-shot' }] });
-          log('→ focusMode: single-shot (refocus)');
-          await new Promise(r => setTimeout(r, 250));
-        } catch (e) {
-          log('focusMode single-shot fail: ' + e.message);
-        }
+        const caps = currentTrack.getCapabilities();
+        log('Caps keys: ' + Object.keys(caps).join(', '));
 
         if (caps.focusMode?.includes('continuous')) {
           try {
             await currentTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-            log('→ focusMode: continuous (after refocus)');
+            log('→ focusMode: continuous');
           } catch (e) {
-            log('focusMode back-to-continuous fail: ' + e.message);
+            log('focusMode continuous fail: ' + e.message);
           }
         }
+
+        if (caps.focusMode?.includes('single-shot')) {
+          try {
+            await currentTrack.applyConstraints({ advanced: [{ focusMode: 'single-shot' }] });
+            log('→ focusMode: single-shot (refocus)');
+            await new Promise(r => setTimeout(r, 250));
+          } catch (e) {
+            log('focusMode single-shot fail: ' + e.message);
+          }
+
+          if (caps.focusMode?.includes('continuous')) {
+            try {
+              await currentTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+              log('→ focusMode: continuous (after refocus)');
+            } catch (e) {
+              log('focusMode back-to-continuous fail: ' + e.message);
+            }
+          }
+        }
+
+        if (caps.focusDistance && caps.focusDistance.min != null && caps.focusDistance.max != null && caps.focusDistance.min !== caps.focusDistance.max) {
+          try {
+            await currentTrack.applyConstraints({ advanced: [{ focusDistance: caps.focusDistance.min }] });
+            log('→ focusDistance: ' + caps.focusDistance.min + ' (near for QR)');
+          } catch (e) {
+            log('focusDistance fail: ' + e.message);
+          }
+        }
+
+        log('tune/refocus done');
+      } catch (e) {
+        log('tune/refocus ошибка: ' + e.message);
+      }
+    }
+
+    function stopCamera() {
+      scanActive = false;
+      if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+        currentTrack = null;
+      }
+      video.srcObject = null;
+    }
+
+    async function startCamera() {
+      stopCamera();
+
+      const facingMode = useFrontCamera ? 'user' : 'environment';
+      setStatus('Запуск камеры...', 'warning');
+      log('Запуск: ' + facingMode);
+
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(buildConstraints({ useDeviceId: false, facingMode }));
+        log('Камера OK (первичный старт по facingMode)');
+      } catch (e) {
+        log('Старт по facingMode fail: ' + e.name + ' / ' + e.message);
       }
 
-      if (caps.focusDistance && caps.focusDistance.min != null && caps.focusDistance.max != null && caps.focusDistance.min !== caps.focusDistance.max) {
+      if (!stream) {
+        setStatus('Нет доступа к камере', 'error');
+        return;
+      }
+
+      currentStream = stream;
+      currentTrack = stream.getVideoTracks()[0];
+      video.srcObject = stream;
+
+      try { await refreshDeviceLists(); } catch (e) { log('enumerateDevices ошибка: ' + e.message); }
+
+      const chosen = useFrontCamera
+        ? (frontCams[frontIndex]?.deviceId)
+        : (backCams[backIndex]?.deviceId);
+
+      if (chosen) {
+        log('Пробую ' + (useFrontCamera ? 'фронт' : 'заднюю') + ' по deviceId (index=' + (useFrontCamera ? frontIndex : backIndex) + ')');
         try {
-          await currentTrack.applyConstraints({ advanced: [{ focusDistance: caps.focusDistance.min }] });
-          log('→ focusDistance: ' + caps.focusDistance.min + ' (near for QR)');
+          stream.getTracks().forEach(t => t.stop());
+          stream = await navigator.mediaDevices.getUserMedia(buildConstraints({ useDeviceId: true, deviceId: chosen, facingMode }));
+          currentStream = stream;
+          currentTrack = stream.getVideoTracks()[0];
+          video.srcObject = stream;
+          log('Открыта ' + (useFrontCamera ? 'фронт' : 'задняя') + ' камера по deviceId ✅');
         } catch (e) {
-          log('focusDistance fail: ' + e.message);
+          log('deviceId старт fail: ' + e.name + ' / ' + e.message);
         }
       }
 
-      log('tune/refocus done');
-    } catch (e) {
-      log('tune/refocus ошибка: ' + e.message);
+      try {
+        const s = currentTrack.getSettings();
+        log(`Track settings: ${s.width || '?'}x${s.height || '?'} facing=${s.facingMode || '?'} deviceId=${s.deviceId ? 'yes' : 'no'}`);
+      } catch (e) {}
+
+      try { await waitLoadedMetadata(video); }
+      catch (e) { setStatus('Ошибка видео', 'error'); return; }
+
+      await tuneTrackAndRefocus();
+
+      flashOn = false;
+      flashBtn.classList.remove('on');
+
+      try { await video.play(); }
+      catch (e) { setStatus('Ошибка воспроизведения', 'error'); return; }
+
+      log('Видео: ' + video.videoWidth + 'x' + video.videoHeight);
+
+      if (!isTelegram) {
+        setStatus(
+          'Камера активна. Ищу QR-код...\n(ВНИМАНИЕ: открыт не как WebApp — отправки в бот не будет)',
+          'warning'
+        );
+      } else {
+        setStatus('Камера активна. Ищу QR-код...', 'success');
+      }
+
+      scanActive = true;
+      requestScan();
     }
-  }
 
-  function stopCamera() {
-    scanActive = false;
-    if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
-
-    if (currentStream) {
-      currentStream.getTracks().forEach(t => t.stop());
-      currentStream = null;
-      currentTrack = null;
+    // =========================
+    // Flash / torch
+    // =========================
+    async function toggleFlash() {
+      if (!currentTrack) return;
+      try {
+        const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
+        if (!caps.torch) {
+          setStatus('Вспышка недоступна', 'warning');
+          setTimeout(() => setStatus('Камера активна. Ищу QR-код...', isTelegram ? 'success' : 'warning'), 1500);
+          return;
+        }
+        flashOn = !flashOn;
+        await currentTrack.applyConstraints({ advanced: [{ torch: flashOn }] });
+        flashBtn.classList.toggle('on', flashOn);
+        log('Вспышка: ' + (flashOn ? 'ВКЛ' : 'ВЫКЛ'));
+      } catch (e) {
+        log('Вспышка ошибка: ' + e.message);
+      }
     }
-    video.srcObject = null;
-  }
 
-  // =========================
-  // Flash / torch
-  // =========================
-  async function toggleFlash() {
-    if (!currentTrack) return;
-    try {
-      const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
-      if (!caps.torch) {
-        setStatus('Вспышка недоступна', 'warning');
-        setTimeout(() => setStatus('Камера активна. Ищу QR-код...'), 1500);
+    // =========================
+    // Scanning loop
+    // =========================
+    function requestScan() {
+      if (!scanActive) return;
+      animFrameId = requestAnimationFrame(scanFrame);
+    }
+
+    function scanFrame() {
+      if (!scanActive) return;
+
+      // jsQR must exist
+      if (typeof jsQR !== 'function') {
+        setStatus('Ошибка: jsQR не загружен. Проверьте /assets/js/jsQR.min.js', 'error');
+        log('jsQR is not loaded');
+        scanActive = false;
         return;
       }
-      flashOn = !flashOn;
-      await currentTrack.applyConstraints({ advanced: [{ torch: flashOn }] });
-      flashBtn.classList.toggle('on', flashOn);
-      log('Вспышка: ' + (flashOn ? 'ВКЛ' : 'ВЫКЛ'));
-    } catch (e) {
-      log('Вспышка ошибка: ' + e.message);
-    }
-  }
 
-  // =========================
-  // Scanning loop
-  // =========================
-  function requestScan() {
-    if (!scanActive) return;
-    animFrameId = requestAnimationFrame(scanFrame);
-  }
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+        requestScan();
+        return;
+      }
 
-  function scanFrame() {
-    if (!scanActive) return;
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (!w || !h) {
+        requestScan();
+        return;
+      }
 
-    if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+      const cropW = Math.floor(w * SCAN_CENTER_FRACTION);
+      const cropH = Math.floor(h * SCAN_CENTER_FRACTION);
+      const cropX = Math.floor((w - cropW) / 2);
+      const cropY = Math.floor((h - cropH) / 2);
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      let imageData;
+      try {
+        imageData = ctx.getImageData(0, 0, cropW, cropH);
+      } catch (e) {
+        requestScan();
+        return;
+      }
+
+      const code = jsQR(imageData.data, cropW, cropH, { inversionAttempts: 'attemptBoth' });
+      if (code && code.data) {
+        onQRDetected(code.data);
+        return;
+      }
+
       requestScan();
-      return;
     }
 
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-    if (!w || !h) {
-      requestScan();
-      return;
-    }
-
-    const cropW = Math.floor(w * SCAN_CENTER_FRACTION);
-    const cropH = Math.floor(h * SCAN_CENTER_FRACTION);
-    const cropX = Math.floor((w - cropW) / 2);
-    const cropY = Math.floor((h - cropH) / 2);
-
-    canvas.width = cropW;
-    canvas.height = cropH;
-    ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-    let imageData;
-    try {
-      imageData = ctx.getImageData(0, 0, cropW, cropH);
-    } catch (e) {
-      requestScan();
-      return;
-    }
-
-    const code = jsQR(imageData.data, cropW, cropH, { inversionAttempts: 'attemptBoth' });
-    if (code && code.data) {
-      onQRDetected(code.data);
-      return;
-    }
-
-    requestScan();
-  }
-
-  function resumeScanAfterDelay(ms = 2500) {
-    setTimeout(() => {
-      scanActive = true;
-      requestScan();
-      setStatus('Камера активна. Ищу QR-код...', isTelegram ? 'success' : 'warning');
-    }, ms);
-  }
-
-  // =========================
-  // QR detected -> send to bot
-  // =========================
-  function onQRDetected(qrData) {
-    // Stop loop immediately
-    scanActive = false;
-
-    // Dedupe
-    const now = Date.now();
-    if (qrData === lastQR && (now - lastQRTime) < 4000) {
-      log('Дубль QR в течение 4с — игнор');
-      scanActive = true;
-      requestScan();
-      return;
-    }
-    lastQR = qrData;
-    lastQRTime = now;
-
-    log('QR: ' + qrData);
-    log('onQRDetected: isTelegram=' + isTelegram + ', hasTG=' + !!(window.Telegram && window.Telegram.WebApp));
-
-    try { if (navigator.vibrate) navigator.vibrate(150); } catch (e) {}
-
-    // IMPORTANT: keys must match bot handler
-    const payloadObj = {
-      event_id: Number(eventId),
-      qr_data: String(qrData || '')
-    };
-    const payload = JSON.stringify(payloadObj);
-    log('PayloadObj: ' + JSON.stringify(payloadObj));
-
-    // If NOT Telegram WebApp -> cannot send
-    if (!isTelegram || !tg) {
-      setStatus('QR считан ✅\nНо открыт не как Telegram WebApp — отправить в бота нельзя', 'error');
-      log('SEND SKIP: no Telegram WebApp context (open via web_app button)');
-      resumeScanAfterDelay(3000);
-      return;
-    }
-
-    // Try sendData
-    try {
-      tg.sendData(payload);
-      log('sendData() OK ✅');
-      setStatus('📨 Отправлено в бота. Можно закрывать окно...', 'success');
-
-      // Close a bit later (avoid race)
+    function resumeScanAfterDelay(ms = 2500) {
       setTimeout(() => {
-        try { tg.close(); } catch (e) { log('tg.close err: ' + e.message); }
-      }, 700);
-
-    } catch (e) {
-      log('sendData ошибка: ' + (e && e.message ? e.message : e));
-      setStatus('Ошибка отправки в Telegram WebApp', 'error');
-      resumeScanAfterDelay(3000);
+        scanActive = true;
+        requestScan();
+        setStatus('Камера активна. Ищу QR-код...', isTelegram ? 'success' : 'warning');
+      }, ms);
     }
-  }
 
-  // =========================
-  // Buttons
-  // =========================
-  switchBtn.addEventListener('click', () => {
-    useFrontCamera = !useFrontCamera;
-    log('Переключение: ' + (useFrontCamera ? 'фронт' : 'задняя'));
-    startCamera();
-  });
+    // =========================
+    // QR detected -> sendData
+    // =========================
+    function onQRDetected(qrData) {
+      scanActive = false;
 
-  lensBtn.addEventListener('click', () => {
-    if (useFrontCamera) {
-      if (frontCams.length <= 1) { setStatus('Нет других фронт камер', 'warning'); return; }
-      frontIndex = (frontIndex + 1) % frontCams.length;
-      log('Линза фронт: index=' + frontIndex);
-    } else {
-      if (backCams.length <= 1) { setStatus('Нет других задних камер', 'warning'); return; }
-      backIndex = (backIndex + 1) % backCams.length;
-      log('Линза задняя: index=' + backIndex);
+      // Dedupe within 4 seconds
+      const now = Date.now();
+      if (qrData === lastQR && (now - lastQRTime) < 4000) {
+        log('Дубль QR в течение 4с — игнор');
+        scanActive = true;
+        requestScan();
+        return;
+      }
+      lastQR = qrData;
+      lastQRTime = now;
+
+      log('QR: ' + qrData);
+      log('onQRDetected: isTelegram=' + isTelegram + ', hasTG=' + !!(window.Telegram && window.Telegram.WebApp));
+
+      try { if (navigator.vibrate) navigator.vibrate(150); } catch (e) {}
+
+      // IMPORTANT: key must match bot handler -> qr_data
+      const payloadObj = {
+        event_id: Number(eventId),
+        qr_data: String(qrData || '')
+      };
+      const payload = JSON.stringify(payloadObj);
+      log('PayloadObj: ' + JSON.stringify(payloadObj));
+
+      if (!isTelegram || !tg) {
+        setStatus('QR считан ✅\nНо открыт не как Telegram WebApp — отправка в бот невозможна', 'error');
+        log('SEND SKIP: no Telegram WebApp context');
+        resumeScanAfterDelay(3000);
+        return;
+      }
+
+      try {
+        tg.sendData(payload);
+        log('sendData() OK ✅');
+        setStatus('📨 Отправлено в бота', 'success');
+
+        // Close a bit later to avoid races
+        setTimeout(() => {
+          try { tg.close(); } catch (e) { log('tg.close err: ' + e.message); }
+        }, 700);
+
+      } catch (e) {
+        log('sendData ошибка: ' + (e?.message || String(e)));
+        setStatus('Ошибка отправки в Telegram WebApp', 'error');
+        resumeScanAfterDelay(3000);
+      }
     }
-    startCamera();
-  });
 
-  flashBtn.addEventListener('click', () => toggleFlash());
+    // =========================
+    // Buttons
+    // =========================
+    switchBtn.addEventListener('click', () => {
+      useFrontCamera = !useFrontCamera;
+      log('Переключение: ' + (useFrontCamera ? 'фронт' : 'задняя'));
+      startCamera();
+    });
 
-  closeBtn.addEventListener('click', () => {
-    stopCamera();
-    if (isTelegram && tg) { try { tg.close(); } catch(e) {} }
-    setStatus('Сканер закрыт', 'warning');
-  });
+    lensBtn.addEventListener('click', () => {
+      if (useFrontCamera) {
+        if (frontCams.length <= 1) { setStatus('Нет других фронт камер', 'warning'); return; }
+        frontIndex = (frontIndex + 1) % frontCams.length;
+        log('Линза фронт: index=' + frontIndex);
+      } else {
+        if (backCams.length <= 1) { setStatus('Нет других задних камер', 'warning'); return; }
+        backIndex = (backIndex + 1) % backCams.length;
+        log('Линза задняя: index=' + backIndex);
+      }
+      startCamera();
+    });
 
-  // =========================
-  // Start
-  // =========================
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    log('getUserMedia OK');
-    startCamera();
-  } else {
-    setStatus('Камера не поддерживается', 'error');
-    log('getUserMedia НЕ поддерживается');
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-      setStatus('Нужен HTTPS! Протокол: ' + location.protocol, 'error');
+    flashBtn.addEventListener('click', () => toggleFlash());
+
+    closeBtn.addEventListener('click', () => {
+      stopCamera();
+      if (isTelegram && tg) { try { tg.close(); } catch (e) {} }
+      setStatus('Сканер закрыт', 'warning');
+    });
+
+    // =========================
+    // Main
+    // =========================
+    async function main() {
+      log('event_id = ' + eventId);
+
+      // Telegram first (so status can warn correctly)
+      await initTelegramWebApp();
+
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        log('getUserMedia OK');
+        startCamera();
+      } else {
+        setStatus('Камера не поддерживается', 'error');
+        log('getUserMedia НЕ поддерживается');
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+          setStatus('Нужен HTTPS! Протокол: ' + location.protocol, 'error');
+        }
+      }
     }
-  }
-</script>
 
+    main();
+  </script>
 </body>
 </html>
